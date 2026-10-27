@@ -1,0 +1,44 @@
+# Azure Pipelines definition for Entity 360 (free tier: 1 Microsoft-hosted parallel job, 1,800 minutes per month).
+# New organizations may need to request the free hosted parallelism grant before this can run.
+trigger:
+  branches:
+    include: [main]
+pr:
+  branches:
+    include: [main]
+
+jobs:
+  - job: node_tests
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - task: NodeTool@0
+        inputs:
+          versionSpec: '22.x'
+      - script: npm ci
+        displayName: Install
+      - script: npm run check
+        displayName: Syntax checks
+      - script: npm test
+        displayName: Unit tests
+
+  - job: powershell_parse
+    pool:
+      vmImage: windows-latest
+    steps:
+      - pwsh: |
+          $bad = 0
+          Get-ChildItem -Recurse -Filter *.ps1 | Where-Object { $_.FullName -notmatch 'node_modules' } | ForEach-Object {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errs)
+            if ($errs.Count) { $bad++; Write-Host "PARSE ERROR $($_.FullName)"; $errs | ForEach-Object { Write-Host "  $($_.Message)" } }
+          }
+          if ($bad) { exit 1 }
+        displayName: Parse every PowerShell script
+
+  - job: secret_scan
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - script: docker run --rm -v "$(Build.SourcesDirectory):/repo" zricethezav/gitleaks:latest detect --source /repo --no-git --redact
+        displayName: gitleaks (secrets in the working tree)

@@ -1,0 +1,52 @@
+export function createLicenseView({ api, session, esc, external, onSources, openConnection, onConnectionsChanged }) {
+  const $ = s => document.querySelector(s);
+  let active = false, report = null, generation = 0, personalNote = null;
+  const value = v => v === undefined || v === null ? 'Not returned' : String(v);
+  // Collapsible sections (native details/summary, collapsed by default, CSP safe).
+  const fold = (title, meta, body, cls = '') => `<details class="fold ${cls}"><summary><span class="fold-title">${title}</span>${meta ? `<span class="fold-meta">${meta}</span>` : ''}</summary><div class="fold-body">${body}</div></details>`;
+  const planTable = (plans, cols = 3) => `<div class="table-wrap"><table class="account-table"><thead><tr><th>Service plan</th><th>Status</th>${cols === 3 ? '<th>Scope</th>' : ''}</tr></thead><tbody>${plans.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.status)}</td>${cols === 3 ? `<td>${esc(s.appliesTo || 'Not returned')}</td>` : ''}</tr>`).join('')}</tbody></table></div>`;
+  const skuFold = (l, cols = 3) => {
+    const groups = new Map();
+    for (const pl of l.plans || []) { const k = pl.status || 'Not returned'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(pl); }
+    const enabled = (l.plans || []).filter(pl => /^(enabled|success)$/i.test(pl.status || '')).length;
+    const body = groups.size ? [...groups].map(([k, rows]) => fold(esc(k), `${rows.length} plan${rows.length === 1 ? '' : 's'}`, planTable(rows, cols), 'fold-sub')).join('') : '<p class="inline-empty">No service plans returned for this product.</p>';
+    return fold(esc(l.sku), `${(l.plans || []).length} service plan${(l.plans || []).length === 1 ? '' : 's'} · ${enabled} enabled`, body, 'fold-sku');
+  };
+function render() {
+    $('#license-export').disabled = !report;
+    $('#license-example-label').hidden = session()?.mode !== 'demo';
+    if (!report) { $('#license-results').innerHTML = '<p>Select Check licenses. The target is the account signed into this dashboard.</p>'; return; }
+    const portfolio = report.contexts;
+    const current = portfolio ? (portfolio.find(c => c.key === session()?.activeConnection && c.report)?.report || portfolio.find(c => c.report)?.report) : report;
+    if (!current) { $('#license-results').innerHTML = '<p>No connected context returned license evidence. Sign in and check the coverage status.</p>'; if (active) onSources(report.sources || []); return; }
+    const personal = ['personal', 'demo-personal'].includes(current.mode);
+    const me = current.identity;
+    const a = current.levels.account, p = current.levels.parent;
+    let html = portfolio ? `<section class="panel account-controls"><h2>Cross-tenant coverage</h2><p>${esc(report.note)} Global completeness: <strong>not established</strong>.</p>${fold('Connected accounts', `${portfolio.length} connection${portfolio.length === 1 ? '' : 's'}`, `<div class="table-wrap"><table class="account-table"><thead><tr><th>Account</th><th>Tenant</th><th>Collection</th><th>Assigned products</th></tr></thead><tbody>${portfolio.map(c => `<tr><td>${esc(c.account)}</td><td>${esc(c.tenant)}</td><td>${esc(c.status)}</td><td>${c.report?.levels.account?.status === 'queried' ? c.report.levels.account.rows.map(l => esc(l.sku)).join('<br>') || 'No assignments returned' : 'Not established'}</td></tr>`).join('')}</tbody></table></div>`)}</section>` : '';
+    html += `<div class="panel account-controls"><h2>${esc(me.upn)}</h2><p>${esc(me.tenant)} · ${esc(me.userType)} · ${current.mode.startsWith('demo') ? 'Fictional demo' : 'Live signed-in context'}</p><p>Identity key: ${esc(me.tenant)} / ${esc(me.id)}. Email alone is not used to merge accounts.</p><p>Collected: ${esc(current.updatedAt)} UTC</p></div>`;
+    html += '<section class="panel account-controls"><h2>Level 1 · Signed-in account</h2>';
+    if (a?.status === 'queried') {
+      html += a.rows.length ? a.rows.map(l => skuFold(l)).join('') : '<p>No license assignments returned by the successful query in this tenant.</p>';
+    } else html += `<p>${esc(a?.explanation || 'License evidence unavailable.')}</p>${a?.portal ? external(a.portal, 'Open Services & subscriptions', 'btn') : ''}`;
+    html += '</section>';
+    if (p?.status === 'queried') html += `<section class="panel account-controls"><h2>Level 2 · Current tenant inventory</h2><p>Tenant: ${esc(me.tenant)}. Seat counts describe this tenant only; unassigned seats are not a purchasing recommendation.</p>${fold('Products', `${p.rows.length} product${p.rows.length === 1 ? '' : 's'}`, `<div class="table-wrap"><table class="account-table"><thead><tr><th>Product</th><th>Status</th><th>Enabled seats</th><th>Assigned</th><th>Unassigned</th><th>Warning / suspended</th></tr></thead><tbody>${p.rows.map(s => `<tr><td>${esc(s.sku)}</td><td>${esc(s.status)}</td><td>${esc(value(s.enabled))}</td><td>${esc(value(s.assigned))}</td><td>${esc(value(s.unassigned))}</td><td>${esc(value(s.warning))} / ${esc(value(s.suspended))}</td></tr>`).join('')}</tbody></table></div>`)}${external('https://admin.microsoft.com/', 'Open tenant billing and licenses', 'btn')}</section>`;
+    else if (personal) html += `<section class="panel account-controls"><h2>Level 2 · Subscription owner / family sharing</h2><p>${esc(p.explanation)}</p>${external('https://account.microsoft.com/services', 'Check ownership and sharing in Microsoft', 'btn')}<p>Family organizer, subscription owner and shared benefits have not been retrieved. No organizational tenant inventory is inferred.</p><form id="consumer-note-form"><h3>Record what the subscription portal shows</h3><label>Product name<input id="consumer-product" maxlength="120" required placeholder="Microsoft 365 Personal or Family"></label><label>Relationship<select id="consumer-relationship"><option value="unknown">Unknown</option><option value="owner">Subscription owner</option><option value="shared">Shared benefit recipient</option></select></label><button type="submit" class="btn">Record user-reported evidence</button></form>${personalNote ? `<p><strong>User-reported; not API verified:</strong> ${esc(personalNote.product)} · ${esc(personalNote.relationship)} · ${esc(personalNote.recordedAt)}</p>` : ''}</section>`;
+    html += '<section class="panel account-controls"><h2>Accounts in multiple tenants</h2><p>Connect each organization separately, then switch its context in Connection & setup. Each tenant has its own user object, assignments, seats and authorization. Guest access does not establish a local license assignment. Compare labeled evidence without pooling license balances.</p></section>';
+    if (portfolio) for (const c of portfolio.filter(c => c.report && c.report !== current)) html += `<section class="panel account-controls"><h2>Other connected tenant · ${esc(c.tenant)}</h2><p>${esc(c.account)} · ${esc(c.status)}</p>${c.report.levels.account?.status === 'queried' ? c.report.levels.account.rows.map(l => skuFold(l, 2)).join('') || '<p>No assignments returned.</p>' : `<p>${esc(c.report.levels.account?.explanation || 'Not queried')}</p>`}${c.report.levels.parent?.status === 'queried' ? fold('Tenant inventory', `${c.report.levels.parent.rows.length} products`, `<div class="table-wrap"><table class="account-table">${c.report.levels.parent.rows.map(s => `<tr><td>${esc(s.sku)}</td><td>Assigned ${esc(value(s.assigned))} / enabled ${esc(value(s.enabled))}</td><td>${esc(s.status)}</td></tr>`).join('')}</table></div>`) : ''}</section>`;
+    $('#license-results').innerHTML = html;
+    if ($('#consumer-note-form')) $('#consumer-note-form').onsubmit = event => { event.preventDefault(); personalNote = { product: $('#consumer-product').value.trim(), relationship: $('#consumer-relationship').value, recordedAt: new Date().toISOString(), provenance: 'User-reported from Microsoft subscription portal; not API verified', accountId: current.identity.id }; render(); };
+    if (active) onSources(report.sources);
+  }
+  async function run() {
+    const id = ++generation; $('#license-run').disabled = true; $('#license-status').textContent = 'Reading license evidence for the active account…';
+    try { const query = new URLSearchParams(); if ($('#license-all').checked) query.set('scope', 'all'); if (session()?.mode === 'demo' && $('#license-example').value === 'personal') query.set('example', 'personal'); const r = await api('/api/licenses?' + query); if (id !== generation) return; report = r; render(); $('#license-status').textContent = r.partial ? 'Partial evidence. Some queries were unavailable or reached collection limits.' : 'License check complete.'; }
+    catch(e) { if (id === generation) $('#license-status').textContent = e.message; }
+    finally { if (id === generation) $('#license-run').disabled = false; }
+  }
+  $('#license-run').onclick = run;
+  $('#license-discover').onclick = async () => { $('#license-discover').disabled = true; const id = generation; try { const r = await api('/api/portfolio/discover', { method: 'POST', body: '{}' }); if (id !== generation) return; await onConnectionsChanged?.(); if (id !== generation) return; $('#license-discovery').innerHTML = `<p>${esc(r.note)}</p><div class="table-wrap"><table class="account-table"><thead><tr><th>Discovered tenant</th><th>ID</th><th>Connection</th></tr></thead><tbody>${r.tenants.map(t => `<tr><td>${esc(t.name)}</td><td>${esc(t.id)}</td><td>${esc(t.connectionStatus)}</td></tr>`).join('')}</tbody></table></div><p>Copy an unconnected tenant ID into Connection &amp; setup and sign in. Discovery does not prove any license exists there.</p>`; } catch(e) { $('#license-status').textContent = e.message; } finally { $('#license-discover').disabled = false; } };
+  $('#license-export').onclick = () => { const url = URL.createObjectURL(new Blob([JSON.stringify({ report, userReportedPersonalSubscription: personalNote }, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'Entity360-licenses.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+  $('#license-connect').onclick = openConnection;
+  $('#license-example').onchange = () => { report = null; personalNote = null; render(); if (active) onSources([]); };
+  return { run, reset() { generation++; report = null; personalNote = null; $('#license-run').disabled = false; $('#license-status').textContent = ''; $('#license-discovery').innerHTML = ''; $('#license-example').value = 'organization'; render(); }, setActive(v) { active = v; if (active) { render(); onSources(report?.sources || []); } } };
+}

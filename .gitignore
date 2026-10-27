@@ -1,0 +1,19 @@
+node_modules/
+.env
+*.log
+test-results/
+playwright-report/
+.runtime/
+
+# Added for source control hardening
+*.pem
+*.pfx
+*.p12
+*.key
+*.crt
+.env.*
+!.env.example
+.backups/
+*.pre-*
+Entity360-*.json
+*.mhtml.bak
