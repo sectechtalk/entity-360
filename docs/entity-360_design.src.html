@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entity 360 design</title>
+<style>
+:root{--bg:#fff;--fg:#1c2733;--muted:#5a6878;--line:#d9e0e8;--card:#f5f7fa;--accent:#185fa5;--ok:#0f6e56;--okbg:#e1f5ee;--warn:#854f0b;--warnbg:#faeeda;--no:#a32d2d;--nobg:#fcebeb;--info:#3c3489;--infobg:#eeedfe;--gray:#f1efe8;--graye:#5f5e5a;--teal:#e1f5ee;--tealt:#0f6e56;--purp:#eeedfe;--purpt:#534ab7}
+@media (prefers-color-scheme:dark){:root{--bg:#15191f;--fg:#e6eaf0;--muted:#a3adba;--line:#2d3641;--card:#1d232b;--accent:#85b7eb;--ok:#9fe1cb;--okbg:#04342c;--warn:#fac775;--warnbg:#412402;--no:#f7c1c1;--nobg:#501313;--info:#cecbf6;--infobg:#26215c;--gray:#2c2c2a;--graye:#b4b2a9;--teal:#04342c;--tealt:#9fe1cb;--purp:#26215c;--purpt:#afa9ec}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 "Segoe UI",system-ui,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:24px 20px 80px}
+h1{font-size:28px;margin:8px 0 4px;font-weight:600}h2{font-size:22px;margin:40px 0 8px;font-weight:600;border-top:1px solid var(--line);padding-top:24px}h3{font-size:18px;margin:26px 0 6px;font-weight:600}h4{font-size:14px;margin:18px 0 4px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+p,li{max-width:84ch}small,.muted{color:var(--muted)}
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 18px;margin:18px 0}nav.toc a{margin-right:14px;color:var(--accent);text-decoration:none;white-space:nowrap}
+table{border-collapse:collapse;width:100%;margin:10px 0 18px;font-size:14.5px}th,td{border:1px solid var(--line);padding:7px 10px;vertical-align:top;text-align:left}th{background:var(--card);font-weight:600}
+.scroll{overflow-x:auto}
+.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
+.built{background:var(--okbg);color:var(--ok)}.plan{background:var(--infobg);color:var(--info)}.todo{background:var(--warnbg);color:var(--warn)}.no{background:var(--nobg);color:var(--no)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 18px;margin:14px 0}
+.change{border-left:4px solid var(--warn);background:var(--warnbg);padding:8px 12px;border-radius:0 8px 8px 0;margin:8px 0;font-size:14.5px}
+.rank{font-weight:600;color:var(--accent)}
+code{font:13px Consolas,monospace;background:var(--card);padding:1px 5px;border-radius:4px}
+svg{max-width:100%;height:auto}
+svg text{font:13px "Segoe UI",system-ui,sans-serif;fill:var(--fg)}svg .h{font-weight:600;font-size:14px}svg .m{fill:var(--muted);font-size:12px}
+svg .gray{fill:var(--gray);stroke:var(--graye)}svg .teal{fill:var(--teal);stroke:var(--tealt)}svg .purp{fill:var(--purp);stroke:var(--purpt)}svg .ln{stroke:var(--muted);stroke-width:1.5;fill:none}svg .dash{stroke-dasharray:5 4}
+@media print{nav.toc{display:none}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Entity 360: design options and the delegated-first plan</h1>
+<p class="muted">Version 0.2, October 24, 2026 (first draft v0.1 October 12, 2026). Reader: Aaron only. Source plan: <code>Entity360_Registration_Plan.md</code>. Status words used throughout:
+<span class="tag built">built</span> exists and is tested, <span class="tag plan">planned</span> designed, not created,
+<span class="tag todo">open</span> needs a decision or proof, <span class="tag no">not covered</span> this project cannot honestly demonstrate it.</p>
+
+<nav class="toc"><a href="#goal">1 Goal</a><a href="#jd">2 Job description map</a><a href="#options">3 Three designs</a><a href="#flow">4 Data flow</a><a href="#phases">5 Option 1 in three phases</a><a href="#workflows">6 Automated workflows</a><a href="#github">7 Source control</a><a href="#evidence">8 Evidence and Zero Trust</a><a href="#secrets">9 Secrets and Key Vault</a><a href="#cost">10 Cost and free tiers</a><a href="#open">11 Open items</a><a href="#azure-free-service-research">12 Azure free-service research</a><a href="#split">13 User/admin split</a></nav>
+
+<h2 id="goal">1 What this is for</h2>
+<p><strong>Entity 360</strong> is a read-only identity investigation dashboard (Node.js), hosted on Azure Container Apps since October 24, 2026 (<code>app-e360</code>, image on <code>ghcr.io</code>) and still runnable on localhost for development. It reads Entra ID, Intune, Conditional Access, sign-in logs, licenses, billing and a Windows device snapshot, and shows each person only what their own roles allow. It is also a deliberate <strong>demonstration vehicle</strong> for the skills in the Senior Security Engineer, Identity and Access Management job description, and for the Microsoft SC-300 skills outline effective October 28, 2026.</p>
+<p>Three design questions drive everything: how one sign-in reaches many sources, how a person is limited to the sources their roles permit, and how the same design later extends to an on-premises Active Directory and an on-premises site (version 2).</p>
+
+<h2 id="jd">2 Job description map: what each requirement is demonstrated by</h2>
+<p>Honest rule: a row says "built" only when it exists and has evidence. Everything else is labeled planned, open, or not covered.</p>
+<div class="scroll"><table>
+<thead><tr><th>Requirement from the posting</th><th>How this project demonstrates it</th><th>Evidence you can show</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Zero Trust principles</td><td>Verify explicitly (Conditional Access, claims challenges, per-request role checks); least privilege (delegated-only permissions, app roles, PIM eligibility); assume breach (decision log, no silent fallback, report-only first)</td><td>Policy JSON, sign-in logs, authorization log, denial tests</td><td><span class="tag built">built</span> code and tests; <span class="tag plan">planned</span> tenant objects</td></tr>
+<tr><td>Least privilege access</td><td>No application permissions; each source enforced by the viewer's own roles; app roles gate features only; PIM-eligible membership for the sensitive role; access reviews</td><td>Permissions list, role assignments, PIM activation record, review result</td><td><span class="tag plan">planned</span> (Phase 1 and 2)</td></tr>
+<tr><td>Identity governance</td><td>Entitlement management (catalog, access package, approval, expiry), access reviews, lifecycle workflows, PIM for Groups</td><td>Access package and request history, review definition and decisions, workflow runs</td><td><span class="tag plan">planned</span> (Phase 2)</td></tr>
+<tr><td>Hybrid Active Directory and Entra design and support</td><td>Lab AD DS synced to Entra, Application Proxy to an on-prem site, Kerberos delegation, identity correlation by object ID, SID and immutable ID</td><td>Sync status, Connect Health, proxy connector, KCD config, sync error handling</td><td><span class="tag plan">planned</span> (Phase 3)</td></tr>
+<tr><td>Authentication protocols: SAML, OAuth, OIDC, Kerberos, LDAP</td><td>OIDC and OAuth: Entity 360 itself. SAML: one SAML SSO enterprise application. Kerberos: the proxied Windows-authenticated site. LDAP: the AD connector</td><td>Token claims, SAML assertion trace, Kerberos ticket and KCD setting, LDAP query log</td><td><span class="tag built">built</span> OIDC/OAuth code; others <span class="tag plan">planned</span></td></tr>
+<tr><td>PowerShell, Python and Microsoft Graph automation</td><td>Read-only PowerShell tools for Graph and Intune already exist; the app is a Graph client; Python is used only for the document sync. A small Python evidence exporter is worth adding.</td><td>The scripts in the repository and the tests</td><td><span class="tag built">built</span> PowerShell and Graph; <span class="tag todo">open</span> Python depth</td></tr>
+<tr><td>Automated identity workflows with Logic Apps, Power Automate or similar</td><td>Section 6: three workflows built in Logic Apps, one rebuilt in Power Automate for comparison, wired into lifecycle workflows and entitlement management</td><td>Run history, managed identity, permission list, workflow definition in source control</td><td><span class="tag plan">planned</span> (Phase 2)</td></tr>
+<tr><td>AI-assisted tools (GitHub Copilot, Security Copilot, Claude Code)</td><td>The whole project is built with Claude Code under written rules; add a repository log of what AI changed and how it was reviewed</td><td>Pull requests with review notes, tests that caught AI mistakes</td><td><span class="tag built">built</span> Claude Code; <span class="tag todo">open</span> Copilot and Security Copilot (verify licensing)</td></tr>
+<tr><td>Monitoring and automated response for identity threats</td><td>Diagnostic settings to Log Analytics, KQL workbook, an alert that triggers a Logic App (revoke sessions, notify)</td><td>Workbook, query, alert and playbook run</td><td><span class="tag plan">planned</span> (Phase 2)</td></tr>
+<tr><td>Compliance and audit readiness (HIPAA, NIST, ISO)</td><td>Evidence pack per phase; decision log; a control-mapping table (NIST SP 800-207 tenets) kept with the repository</td><td>Exports, logs, mapping table</td><td><span class="tag plan">planned</span></td></tr>
+<tr><td>Standards and best practices; communication to technical and non-technical readers</td><td>This document, the troubleshooting journal, decision records</td><td>The documents themselves</td><td><span class="tag built">built</span></td></tr>
+<tr><td>Troubleshooting complex identity issues</td><td>Journal of real incidents (Remote Control, Intune enrollment, UPN mismatch), Intune health checks</td><td>Journal steps R01 to R11, I01 to I09</td><td><span class="tag built">built</span></td></tr>
+<tr><td>Enterprise scale (10,000+ accounts), healthcare environment, cross-functional teams, on-call</td><td>A single-admin lab cannot show these. Synthetic bulk users can exercise scripts and queries at volume but are not the same as operating at scale.</td><td>n/a</td><td><span class="tag no">not covered</span></td></tr>
+<tr><td>TCP/IP, LAN/WAN, VoIP, firewalls, VPN, IPS, vulnerability and patch tooling (required qualifications)</td><td>Outside this project. Global Secure Access (Private and Internet Access) touches network access but is a separate lab.</td><td>n/a</td><td><span class="tag no">not covered</span></td></tr>
+</tbody></table></div>
+
+<h2 id="options">3 The three designs</h2>
+<p>The question: one sign-in (SSO) across many sources, with each person limited to the sources their roles permit. All three keep everything read-only.</p>
+
+<div class="card"><h3><span class="rank">Rank 1</span> Option 1: delegated sign-in, app roles for gating, governance around it</h3>
+<p><strong>How it works.</strong> One registration holds delegated permissions to every API (Graph, Azure Resource Manager, Log Analytics, Defender). A server-side web app signs the person in once with authorization code and PKCE, as a confidential client with a certificate; no client secret. It then acquires a token per API silently. Each source is enforced by the viewer's own roles (Entra roles, Azure RBAC, Intune and Log Analytics roles). App roles (<code>E360.Reader</code>, <code>E360.SignIns</code>, <code>E360.Intune</code>, <code>E360.Billing</code>) are assigned through groups with "Assignment required" on, and the server checks them on every request.</p>
+<p class="change"><strong>Superseded in part (Oct 24, 2026).</strong> "One registration for everyone" is replaced: the existing "Entity 360" registration becomes the admin portal, and a new minimal "Entity 360 User" registration will serve end users. See <a href="#split">section 13</a>.</p>
+<p><strong>Strengths.</strong> Least privilege by construction; audit logs name the person; Conditional Access and MFA apply to the user's own token; smallest change from the code that exists.<br>
+<strong>Weaknesses.</strong> Depends on each viewer holding the right source roles; a source that offers no delegated route needs a different path (Option 2).</p></div>
+
+<div class="card"><h3><span class="rank">Rank 2</span> Option 2: hybrid, delegated first plus a narrow app-only broker</h3>
+<p><strong>How it works.</strong> Option 1 for everything that supports delegated access. For unattended collection (for example a scheduled health snapshot) or a source with no delegated route, a small component reads with its own workload identity, with permissions limited to that source and its results gated by an app role. Never a silent fallback when delegated access is denied.</p>
+<p><strong>Strengths.</strong> Full coverage without broad app permissions; small blast radius; demonstrates application permissions and workload identity.<br>
+<strong>Weaknesses.</strong> Two security models to test and explain; the broker is a security boundary; audit logs show the app for those reads.</p></div>
+
+<div class="card"><h3><span class="rank">Rank 3</span> Option 3: app-only backend, Entity 360 as the authorization layer</h3>
+<p><strong>How it works.</strong> The app holds application permissions to everything and decides in its own code who sees what; users sign in only to prove who they are.</p>
+<p><strong>Strengths.</strong> Simplest sign-in; independent of each user's source roles.<br>
+<strong>Weaknesses.</strong> Tenant-wide read in one app; any gating bug leaks everything; audit logs show the app for every read. Document it as the contrast ("why not"); do not build it.</p></div>
+
+<h3>Corrections adopted after review</h3>
+<ul>
+<li>A server-side web app uses a <strong>confidential client</strong>; PKCE does not replace its credential. A non-exportable Windows-store key needs a client-assertion signing integration that must be proven first.</li>
+<li>"One sign-in" means one <em>interactive</em> sign-in; consent, MFA and Conditional Access challenges can still occur and must be handled.</li>
+<li>App roles open features; the sources still enforce the viewer's own permissions. A hidden menu item is not authorization.</li>
+<li>Administrative units demonstrate scoped administration; they do not hide objects from readers and do not scope Intune. Custom security attributes enforce nothing unless code or an ABAC condition reads them.</li>
+<li>The Office 365 Management Activity API offers delegated and application permissions; it does not by itself force a broker.</li>
+<li>Grant only the permission type the chosen model needs, even when an API offers both.</li>
+<li><strong>Never fall back silently to app-only access when delegated access is denied.</strong></li>
+</ul>
+
+<h2 id="flow">4 Data flow (Option 1, Phase 1)</h2>
+<p class="muted">The diagram shows the original localhost flow. Hosted (since Oct 24, 2026) the steps are the same: the server runs in Azure Container Apps, the callback is <code>https://app-e360.example-00000000.westus3.azurecontainerapps.io/auth/callback</code>, and the Key Vault token comes from the container's managed identity instead of the signed-in Azure CLI user.</p>
+<svg viewBox="0 0 680 480" role="img" aria-labelledby="dft dfd"><title id="dft">Entity 360 sign-in and data flow</title><desc id="dfd">Eight numbered steps between the browser, the Entity 360 server, Microsoft Entra ID and the source APIs.</desc>
+<defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect x="10" y="100" width="410" height="110" rx="8" fill="none" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4"/>
+<text class="m" x="405" y="116" text-anchor="end">localhost or Container Apps</text>
+<g><rect class="gray" x="20" y="130" width="130" height="60" rx="8"/><text class="h" x="85" y="156" text-anchor="middle">Browser</text><text class="m" x="85" y="176" text-anchor="middle">the viewer</text></g>
+<g><rect class="teal" x="275" y="130" width="130" height="60" rx="8"/><text class="h" x="340" y="156" text-anchor="middle">Entity 360</text><text class="m" x="340" y="176" text-anchor="middle">web app (BFF)</text></g>
+<g><rect class="purp" x="530" y="40" width="130" height="60" rx="8"/><text class="h" x="595" y="66" text-anchor="middle">Entra ID</text><text class="m" x="595" y="86" text-anchor="middle">sign-in, tokens</text></g>
+<g><rect class="purp" x="530" y="220" width="130" height="60" rx="8"/><text class="h" x="595" y="246" text-anchor="middle">Source APIs</text><text class="m" x="595" y="266" text-anchor="middle">Graph, ARM, Logs</text></g>
+<line class="ln" x1="150" y1="142" x2="273" y2="142" marker-end="url(#ar)"/>
+<line class="ln" x1="273" y1="160" x2="152" y2="160" marker-end="url(#ar)"/>
+<line class="ln dash" x1="273" y1="178" x2="152" y2="178" marker-end="url(#ar)"/>
+<path class="ln" d="M85 130 L85 20 L595 20 L595 38" marker-end="url(#ar)"/>
+<line class="ln" x1="530" y1="92" x2="407" y2="150" marker-end="url(#ar)"/>
+<line class="ln" x1="407" y1="134" x2="530" y2="80" marker-end="url(#ar)"/>
+<line class="ln" x1="407" y1="170" x2="530" y2="232" marker-end="url(#ar)"/>
+<line class="ln dash" x1="530" y1="258" x2="407" y2="186" marker-end="url(#ar)"/>
+<g><circle class="gray" cx="190" cy="142" r="9"/><text x="190" y="146" text-anchor="middle">1</text></g>
+<g><circle class="gray" cx="212" cy="160" r="9"/><text x="212" y="164" text-anchor="middle">2</text></g>
+<g><circle class="gray" cx="234" cy="178" r="9"/><text x="234" y="182" text-anchor="middle">8</text></g>
+<g><circle class="gray" cx="340" cy="20" r="9"/><text x="340" y="24" text-anchor="middle">3</text></g>
+<g><circle class="gray" cx="500" cy="106" r="9"/><text x="500" y="110" text-anchor="middle">4</text></g>
+<g><circle class="gray" cx="440" cy="120" r="9"/><text x="440" y="124" text-anchor="middle">5</text></g>
+<g><circle class="gray" cx="455" cy="194" r="9"/><text x="455" y="198" text-anchor="middle">6</text></g>
+<g><circle class="gray" cx="500" cy="240" r="9"/><text x="500" y="244" text-anchor="middle">7</text></g>
+<text x="24" y="318">1  Browser opens /auth/login on the local server</text>
+<text x="24" y="338">2  Server redirects the browser: PKCE challenge, state, nonce</text>
+<text x="24" y="358">3  Browser goes to Entra ID; you sign in (MFA and Conditional Access apply)</text>
+<text x="24" y="378">4  Entra returns a one-time code through the browser to /auth/callback</text>
+<text x="24" y="398">5  Server redeems the code with the PKCE verifier and its certificate; gets tokens</text>
+<text x="24" y="418">6  Server calls each API with your delegated token, so your own roles decide</text>
+<text x="24" y="438">7  APIs return only what your roles allow (dashed lines carry data back)</text>
+<text x="24" y="458">8  Server shows only the features your app roles open</text>
+</svg>
+<p><strong>Three gates on every call.</strong> (1) The registration lists the delegated permission; (2) an admin consented; (3) the signed-in person's own role allows the data. Conditional Access can challenge at any point. Steps 6 and 7 use the viewer's token, so Entity 360 never has more access than the person signed in.</p>
+<p><strong>Terms.</strong> PKCE = Proof Key for Code Exchange: the app sends a hash of a secret verifier first and must present the verifier to redeem the code, so a stolen code is useless. Nonce = number used once: a random value sent in the request and returned inside the ID token, binding the token to this sign-in. State protects the redirect back to the app.</p>
+
+<h2 id="phases">5 Option 1 in three phases: beginning and end state</h2>
+<div class="scroll"><table>
+<thead><tr><th></th><th>Phase 1: cloud foundation (localhost, hosted Oct 24)</th><th>Phase 2: governance, automation, source control</th><th>Phase 3: hybrid AD and the on-prem site</th></tr></thead>
+<tbody>
+<tr><th>Beginning</th><td>Dashboard on localhost with demo data. No registration, no roles, no certificate. Device-code sign-in. Code for auth-code, role gate and decision log already built and tested (53 tests). <em>Historical starting point, Oct 12.</em></td><td>Phase 1 working live: viewers sign in once and see only permitted features. Evidence pack from Phase 1 exported. Code lives on one machine, uncommitted to a shared repository.</td><td>Phases 1 and 2 stable. Cloud-only identities. No on-premises directory, no on-prem site, no sync.</td></tr>
+<tr><th>End state</th><td>Single-tenant registration with a certificate, four app roles on four groups, assignment required, delegated permissions only, Conditional Access on, PIM-eligible billing role, recurring access review, tested allow and deny matrix, evidence exported.</td><td>Private GitHub repository with protected main, pull-request checks and secret scanning; entitlement management package for the Billing role; lifecycle workflows; three automated workflows with managed identities; Log Analytics workbook and an alert that triggers a playbook.</td><td>Lab Active Directory synced to Entra; an on-prem site published through Application Proxy with Kerberos delegation; an AD connector in Entity 360 with authorization enforced by the app; identity correlated by object ID and SID; hybrid monitoring.</td></tr>
+<tr><th>Skills shown</th><td>Zero Trust, least privilege, app registration, consent, app roles, Conditional Access, PIM, OIDC/OAuth</td><td>Identity governance, workflow automation, managed identities and federation, monitoring and response, DevSecOps for identity</td><td>Hybrid identity, Kerberos, LDAP, Application Proxy, sync troubleshooting, SAML</td></tr>
+</tbody></table></div>
+
+<h3>Phase 1: cloud foundation</h3>
+<ol>
+<li><strong>Verify the endpoint inventory</strong> (source, delegated scope, viewer role, consent type, app-only needed?) against Learn. <span class="tag todo">open</span></li>
+<li><strong>Create the key in Key Vault</strong>: a certificate with a non-exportable key (self-signed, 12 to 24 months validity, so no renewal request charges); upload only the public certificate to the registration; prove signing through the MSAL client-assertion callback. Fallbacks, in order: Windows certificate store key with a local helper (free); an exportable key file with a restricted ACL. <span class="tag built">done Oct 13: kv-e360-auth-xxxxx</span></li>
+<li class="change"><strong>Tenant change.</strong> Create the groups <code>sg-e360-reader</code>, <code>sg-e360-signins</code>, <code>sg-e360-intune</code>, <code>sg-e360-billing</code>. <span class="tag built">done Oct 13</span></li>
+<li class="change"><strong>Tenant change.</strong> Create the app registration "Entity 360": single tenant, Web platform, redirect <code>http://localhost:3600/auth/callback</code> (hosted callback added Oct 24), certificate credential, no secret. <span class="tag built">done Oct 13</span></li>
+<li class="change"><strong>Tenant change.</strong> Create the four app roles; add the delegated permissions from the inventory; grant admin consent. <span class="tag built">done Oct 13 / Oct 18</span></li>
+<li class="change"><strong>Tenant change.</strong> On the enterprise application set "Assignment required" and assign each group to its role. <span class="tag built">done Oct 18</span></li>
+<li>Set tenant ID, client ID, certificate thumbprint, Key Vault URI and certificate name in the environment (identifiers only; the key stays in Key Vault, no key path). <span class="tag built">done</span></li>
+<li><strong>Verify the matrix</strong> with lab users: no role, each single role, all roles. Every denial is logged; no path reads a source after a denial. <span class="tag todo">open: denied route not yet shown</span></li>
+<li class="change"><strong>Tenant change.</strong> Conditional Access policy for the app: report-only first (authentication strength, break-glass group excluded), then On. <span class="tag plan">policy exists; last logged state report-only</span></li>
+<li class="change"><strong>Tenant change.</strong> PIM for Groups: <code>sg-e360-billing</code> membership eligible, not permanent; recurring access review of the four groups. <span class="tag todo">open</span></li>
+<li><strong>Export evidence</strong>: registration, permissions and consent, role assignments, policy JSON, sign-in log entries, PIM activation and expiry, review result, authorization log. Test that a role removal takes effect after token refresh.</li>
+</ol>
+<p><strong>Exit test.</strong> A person with only <code>E360.Reader</code> cannot open Intune health or Billing; a person with <code>E360.Billing</code> but no Azure Cost Management role gets "not authorized" from the source, not data.</p>
+
+<h3>Phase 2: governance, automation, source control</h3>
+<ol>
+<li><strong>Source control first</strong> (section 7): repository, hardening, branch protection, CI.</li>
+<li class="change"><strong>Tenant change.</strong> Entitlement management: a catalog, an access package "Entity 360 Billing viewer" with approval, an expiry and a review; connect it to <code>sg-e360-billing</code>.</li>
+<li class="change"><strong>Tenant change.</strong> Lifecycle workflows for joiner and leaver on lab users; attach a custom task extension that calls a Logic App.</li>
+<li class="change"><strong>Azure change.</strong> Build the three workflows (section 6), each with a system-assigned managed identity and the least Graph permission it needs.</li>
+<li class="change"><strong>Azure change.</strong> Send sign-in and audit logs to Log Analytics through diagnostic settings; build a KQL workbook; add an alert that triggers a playbook.</li>
+<li>Document AI-assisted work in the repository and record the human review for each change.</li>
+</ol>
+<p><strong>Exit test.</strong> Approving an access package grants the app role, the grant is logged, expires on schedule, and a leaver's sessions are revoked automatically with a run record.</p>
+
+<h3>Phase 3: hybrid AD and the on-prem site</h3>
+<ol>
+<li class="change"><strong>Environment.</strong> Build a lab domain controller (evaluation Windows Server on Hyper-V or similar); OUs, test users and groups with a routable UPN suffix. <span class="tag todo">open</span> decide hosting and licensing.</li>
+<li class="change"><strong>Tenant change.</strong> Choose and deploy sync: Entra Connect Sync or Cloud Sync (compare against these scenarios), with password hash synchronization and Connect Health.</li>
+<li>Deliberately create sync problems (duplicate attribute, UPN suffix mismatch, scope filtering) and record the fixes in the journal.</li>
+<li>Join or hybrid-join a test device; decide between hybrid join and Entra join with cloud Kerberos trust.</li>
+<li class="change"><strong>Environment.</strong> An on-prem IIS site with Windows authentication; install the Application Proxy connector; publish the site with pre-authentication and Kerberos constrained delegation.</li>
+<li>Add the AD connector to Entity 360: a read-only gMSA or viewer delegation (verify real AD permissions); Entity 360 enforces viewer scope itself; correlate to Entra by object ID, SID and immutable ID, never by UPN text.</li>
+<li>Add one SAML SSO enterprise application to complete the protocol set.</li>
+</ol>
+<p><strong>Exit test.</strong> A synced user signs in once, reaches the proxied site and Entity 360, and sees the AD facts they are allowed to see; a user outside the role gets nothing and the denial is logged.</p>
+
+<h2 id="workflows">6 Demonstrating "automated identity workflows" (Logic Apps, Power Automate)</h2>
+<p>Show the same governance outcome with two tools and say why you would choose each. Microsoft documents that lifecycle workflows and entitlement management can call a Logic App through a custom task or custom extension; verify the exact current names and limits on Learn before building.</p>
+<div class="scroll"><table>
+<thead><tr><th>Workflow</th><th>Trigger</th><th>What it does</th><th>Identity and permission</th><th>Skills shown</th></tr></thead>
+<tbody>
+<tr><td>1 Access granted with a record</td><td>Access package request approved (entitlement management custom extension)</td><td>Writes a record, notifies the owner, tags the grant with an expiry</td><td>Managed identity; the narrowest Graph read it needs</td><td>Governance, workflow, least privilege</td></tr>
+<tr><td>2 Leaver response</td><td>Lifecycle workflow leaver task</td><td>Revoke sign-in sessions, remove group memberships, notify manager</td><td>Managed identity; scoped write permission</td><td>Joiner-mover-leaver, automated response</td></tr>
+<tr><td>3 Scheduled Intune health snapshot</td><td>Recurrence</td><td>Runs the health checks, stores the result, alerts on failure</td><td>Managed identity with application permissions limited to this read (this is the Option 2 broker)</td><td>Workload identity, application permissions, monitoring</td></tr>
+<tr><td>4 Comparison build</td><td>Same as workflow 1</td><td>Rebuilt in Power Automate</td><td>Connector identity; note licensing and connector governance</td><td>Tool judgment: connectors, DLP for connectors, licensing, run history, source control</td></tr>
+</tbody></table></div>
+<p><strong>What to record for each:</strong> the workflow definition (exported JSON, committed), the identity used, the permission list, a run history screenshot or export, and a one-paragraph note on failure handling and who owns it. <span class="tag todo">open</span> Power Automate premium connector licensing in this tenant (verify).</p>
+
+<h2 id="github">7 Source control with GitHub</h2>
+<ul>
+<li><strong>Repository.</strong> One private repository (or two: <code>entity-360</code> and <code>identity-lab-scripts</code>). Keep it private; the tenant is real.</li>
+<li><strong>Never committed.</strong> Private keys (<code>*.pem</code>, <code>*.pfx</code>, <code>*.key</code>), <code>.env</code>, backup folders, snapshot JSON, tenant exports containing personal data. Extend the existing <code>.gitignore</code> accordingly.</li>
+<li><strong>Branch protection.</strong> Protected <code>main</code>, pull requests required, status checks required, signed commits optional.</li>
+<li><strong>Pull request template.</strong> Includes "Does this change the tenant?", "Which role or permission changes?", "Evidence attached", "Tests added".</li>
+<li><strong>Actions (CI).</strong> <code>npm test</code> and syntax checks; PowerShell parse check on every script; secret scanning with push protection; dependency review and Dependabot; CodeQL for JavaScript; PSScriptAnalyzer for PowerShell (CodeQL does not analyze PowerShell; see section 13).</li>
+<li><strong>Deploy without stored secrets.</strong> Use GitHub OIDC federated credentials to Azure for deploying the Logic Apps and infrastructure, and for the Action that uploads reviewed scripts to Intune (section 13); this is the exam's "federated credential" topic in practice.</li>
+<li><strong>Configuration as code.</strong> Commit sanitized read-only exports of Conditional Access policies, app registrations and role assignments; a scheduled workflow compares them with the tenant and opens an issue on drift.</li>
+<li><strong>Issues and project board.</strong> Track the phase tasks and open items so the plan is visible and dated.</li>
+</ul>
+<p class="change">Creating the repository and pushing is outward-facing: it needs your explicit go. The existing <code>C:\src</code> repository reports "dubious ownership" for this user, which must be understood before any commit. Update Oct 24: <code>safe.directory C:/src</code> is set and the prereq check passes; creating or changing the GitHub repository still needs your go.</p>
+
+<h2 id="evidence">8 Evidence and Zero Trust mapping</h2>
+<table>
+<thead><tr><th>Principle (NIST SP 800-207 tenets in plain words)</th><th>Where it appears</th></tr></thead>
+<tbody>
+<tr><td>Verify explicitly: every request authenticated and authorized</td><td>Auth-code with PKCE and nonce; per-request app-role check; per-source delegated token; claims-challenge handling</td></tr>
+<tr><td>Use least privilege</td><td>Delegated permissions only; no application permissions in the main path; PIM-eligible role; time-bound access package; access reviews</td></tr>
+<tr><td>Assume breach: limit blast radius, log everything</td><td>Authorization decision log; no silent fallback; broker confined to one source; Log Analytics and alerting</td></tr>
+<tr><td>Resource access decided per session, using device and identity posture</td><td>Conditional Access with authentication strength; Intune compliance as a signal (health view shows when compliance is meaningless)</td></tr>
+</tbody></table>
+<p class="muted">Compliance frameworks (HIPAA, ISO) are named in the posting; keep an illustrative control-mapping table with the evidence, labeled as a lab mapping and not legal or compliance advice.</p>
+
+
+<h2 id="secrets">9 Secrets and Azure Key Vault</h2>
+<div class="change"><strong>Decision (October 12, 2026): use Azure Key Vault.</strong> At lab volume it costs cents per month (about USD 0.03 per 10,000 operations, reported), so it is accepted as the one deliberate paid exception. Everything else stays at zero cost. The Windows certificate store with a local signing helper remains the free fallback if the cost ever stops being acceptable.</div>
+<p><strong>Goal.</strong> Keep as many secrets as possible in Key Vault, with one vault per component so a compromise or an access change stays small. The design has very few secrets to begin with: no client secret is used, and the only long-lived credential is the app's certificate key.</p>
+<div class="scroll"><table>
+<thead><tr><th>Vault (proposed name pattern)</th><th>Holds</th><th>Who or what reads it</th></tr></thead>
+<tbody>
+<tr><td><code>kv-e360-auth-xxxxx</code> (created Oct 13; proposed as kv-e360-auth-lab)</td><td>The certificate for the Entity 360 registration, created with a non-exportable key</td><td>The Entity 360 server, to <em>sign</em> its client assertion; the key never leaves the vault</td></tr>
+<tr><td><code>kv-e360-auto-lab</code></td><td>Anything a Logic App or Power Automate flow needs that cannot use a managed identity</td><td>The workflow's managed identity</td></tr>
+<tr><td><code>kv-e360-ci-lab</code> (only if needed)</td><td>Values CI cannot get through federation</td><td>GitHub Actions through OIDC federation, never a stored key</td></tr>
+</tbody></table></div>
+<p>Vault names are global and 3 to 24 characters, so adjust the pattern. Practices to apply: Azure RBAC authorization instead of access policies, soft delete and purge protection on, diagnostic logs to Log Analytics, separate vaults per environment (lab and any later production), and least privilege per identity (for example "Key Vault Crypto User" for signing only; "Key Vault Secrets User" for reading a secret).</p>
+<p><strong>The "secret zero" problem.</strong> Something has to authenticate to Key Vault without a secret: on this computer the server uses the signed-in person's Azure login; the hosted app (Container Apps, since Oct 24) uses its system-assigned managed identity with Key Vault Crypto User on the key only; CI would use GitHub OIDC federation. Each is a different answer to the same question, and it is worth saying so out loud in an interview.</p>
+<p><strong>Key handling.</strong> Primary: a certificate created in Key Vault with a non-exportable key; the server asks Key Vault to sign the JWT assertion (a "sign" operation) and hands the result to the MSAL client-assertion callback, so the key never appears as a file. Fallback: a non-exportable key in the Windows certificate store with a local signing helper (free). Last resort while the integration is proven: a key file with a restricted ACL. This signing integration is the proof task ChatGPT asked for.</p>
+<p class="change"><strong>Consequence to accept.</strong> Purge protection cannot be turned off once enabled, and a deleted vault keeps its name reserved for the retention period. Plan vault names and cleanup accordingly.</p>
+
+<h2 id="cost">10 Cost and free tiers</h2>
+<p>Only what was verified is stated as fact. Items marked "reported" came from a secondary source or a partial page and must be confirmed in the Azure pricing calculator before relying on them.</p>
+<div class="scroll"><table>
+<thead><tr><th>Item</th><th>In the 12-month free period</th><th>After it</th><th>Confidence</th></tr></thead>
+<tbody>
+<tr><td>Azure free account terms</td><td>USD 200 credit usable within 30 days; select services free for 12 months if you move to pay-as-you-go within 30 days; a set of "always free" services (Microsoft states 65+)</td><td>Always-free services continue; the 12-month list becomes pay-as-you-go</td><td>Verified (Microsoft page)</td></tr>
+<tr><td>Key Vault (Standard)</td><td>No verified free tier. One secondary source reported 10,000 operations per month for 12 months; the research in section 12 found no ongoing free tier. Treat as paid.</td><td>Paid per 10,000 operations. Reported: about USD 0.03 per 10,000 secret or key operations, and about USD 3 per certificate renewal request. At lab volume this is cents per month.</td><td>Reported; verify</td></tr>
+<tr><td>Key Vault Premium, HSM-protected keys, Managed HSM</td><td>Not free</td><td>Per-key monthly fees (Premium) and an hourly pool fee (Managed HSM). Not needed for this lab: avoid.</td><td>Structure verified; prices not captured</td></tr>
+<tr><td>Logic Apps (Consumption)</td><td>Confirmed on Microsoft pages: the Consumption plan includes an initial number of free built-in operations per subscription (Learn), and the pricing page lists "First 4,000 actions free". Managed connector calls are billed per execution from the first call.</td><td>Pay per action execution; lab workflows run a few dozen actions per day</td><td>Pricing model verified; amounts not captured</td></tr>
+<tr><td>Log Analytics</td><td>Reported: 5 GB per month ingestion free with 31-day retention</td><td>Pay per GB beyond that; lab sign-in and audit volume is small</td><td>Reported; verify</td></tr>
+<tr><td>Managed identities, app registrations, Conditional Access policies themselves</td><td>No charge</td><td>No charge; the <em>licenses</em> that unlock features are the cost</td><td>Documented behaviour</td></tr>
+<tr><td>Entra governance features (PIM, access reviews, entitlement management, Application Proxy, Connect Health)</td><td>Licensed through Microsoft 365 E7 (includes Entra ID P2 and Identity Governance) and the P2 trial that ends October 26</td><td>Depend on the E7 subscription staying active (next lifecycle October 28). Not part of the Azure free account.</td><td>Verified in this tenant</td></tr>
+<tr><td>Power Automate</td><td>Standard connectors come with Microsoft 365 licenses; premium connectors (including the HTTP action) need a paid plan</td><td>Same</td><td>Reported; verify in this tenant</td></tr>
+<tr><td>GitHub Free (personal)</td><td>Unlimited private repositories; 2,000 Actions minutes per month; Dependabot alerts included</td><td>Same</td><td>Verified (GitHub docs)</td></tr>
+<tr><td>GitHub private-repo protections</td><td>Protected branches and required reviewers need GitHub Pro; secret scanning, push protection and CodeQL for private repositories need paid add-ons</td><td>Decision: do not buy Pro. Use CI and local hooks instead (gitleaks, tests, parse checks) and a personal rule to work through pull requests even though they cannot be forced.</td><td>Verified (GitHub docs)</td></tr>
+<tr><td>Domain controller and lab VMs</td><td>Windows Server evaluation is free; on local Hyper-V it uses your own hardware. A VM in Azure would consume free-account VM hours first.</td><td>An always-on Azure VM is not free after the trial; local hosting avoids that</td><td>Evaluation: documented; VM hours: verify</td></tr>
+</tbody></table></div>
+<p><strong>Net effect.</strong> The design's real running cost is the Microsoft 365 E7 subscription you already carry, plus cents for Key Vault and Logic App operations and, if you want branch protection on a private repository, one GitHub Pro seat. Nothing in Phases 1 and 2 needs Premium or HSM tiers. Hosting (Oct 24): Azure Container Apps consumption plan, scale to zero, inside the monthly free grant; image on GitHub Container Registry (no ACR, about $5/month avoided); no Log Analytics workspace yet; subscription "Free Azure Trial" with the $10 budget alert <code>alert-10-dollar</code> as a backstop.</p>
+
+
+<h2 id="logicapps-cost">Why Logic Apps can get expensive, and how this design avoids it</h2>
+<p>Verified against Microsoft Learn (usage metering, billing and pricing for Azure Logic Apps, July 2026).</p>
+<ul>
+<li><strong>Standard plan reserves compute.</strong> You pay for the hosting plan whether or not workflows run. Learn's worked example (an illustrative region) gives about USD 175 per month for the smallest tier (WS1, 1 vCPU, 3.5 GB), 350 for WS2 and 700 for WS3. This is the usual cause of "Logic Apps was expensive".</li>
+<li><strong>Consumption bills per execution,</strong> with an initial free allowance of built-in operations per subscription. Polling triggers are billed every time they check, even when they find nothing: a one-minute poll is about 43,000 trigger executions a month.</li>
+<li><strong>Loops and retries multiply cost:</strong> a "for each" over 10 items is 11 executions; an action with 5 retries is billed as 6.</li>
+<li><strong>Managed connectors are billed from the first call</strong> (Standard or Enterprise connector rates); built-in operations are the ones covered by the free allowance.</li>
+<li><strong>Run-history retention</strong> storage is billed separately.</li>
+</ul>
+<p><strong>Rules for this lab:</strong> Consumption plan only; event or recurrence-by-hour triggers, never frequent polling; built-in actions and HTTP calls to Graph where possible; no loops over large lists; retries set low; keep one workflow active at a time; set a budget alert (it notifies but does not stop spending, so disable the workflow when finished). Exact per-action rates are not shown on the captured pricing page: check the Azure pricing calculator before building.</p>
+
+<h2 id="repo-hosting">Source control hosting: Azure DevOps or GitHub</h2>
+<p class="change"><strong>Superseded (Oct 23, 2026).</strong> GitHub is the source control and registry (ghcr.io); Azure DevOps is not needed. The comparison below is kept as history.</p>
+<div class="scroll"><table>
+<thead><tr><th></th><th>Azure DevOps Services (Basic)</th><th>GitHub Free (personal)</th></tr></thead>
+<tbody>
+<tr><td>Private repositories</td><td>Unlimited; first 5 users free (USD 6 per extra user per month)</td><td>Unlimited</td></tr>
+<tr><td>Branch policies and required reviewers on a private repo</td><td>Available in Azure Repos (reported; confirm in the portal)</td><td>Requires GitHub Pro</td></tr>
+<tr><td>CI minutes</td><td>1 free Microsoft-hosted parallel job, 1,800 minutes per month; 1 free self-hosted parallel job with unlimited minutes. New organizations may need to request the free hosted grant (reported; verify).</td><td>2,000 minutes per month for private repositories</td></tr>
+<tr><td>Secret scanning, code scanning on private repos</td><td>Advanced security features cost extra</td><td>Paid add-ons</td></tr>
+<tr><td>Sign-in and governance</td><td>Entra ID backed: Conditional Access and PIM apply to the organization; service connections can use workload identity federation</td><td>Separate GitHub identity; Entra only through enterprise features</td></tr>
+<tr><td>Cost</td><td>USD 0 at one user</td><td>USD 0</td></tr>
+</tbody></table></div>
+<p><strong>Recommendation.</strong> Azure DevOps Repos and Pipelines as the controlled private repository (free branch policies, tied to your Entra tenant, which is itself an SC-300 talking point). Keep a free GitHub account for demonstrating GitHub skills (Actions, pull requests, Dependabot) on a deliberately sanitized public repository, where secret scanning and code scanning are free. Nothing tenant-specific goes in the public repository. Creating an Azure DevOps organization is an outward-facing change and needs your go.</p>
+
+<h2 id="open">11 Open items before and during Phase 1</h2>
+<table>
+<thead><tr><th>Item</th><th>Decision or proof needed</th></tr></thead>
+<tbody>
+<tr><td>Certificate option</td><td>Decided: Key Vault (non-exportable key, signing through the client-assertion callback; proof task). Fallbacks: Windows store key with a local helper, then a restricted key file</td></tr>
+<tr><td>Group and role names</td><td>Done Oct 13: sg-e360-* groups and E360.* app roles created</td></tr>
+<tr><td>Endpoint inventory</td><td>Verify each "verify" cell on Learn</td></tr>
+<tr><td>Power Automate licensing, Security Copilot availability</td><td>Verify before promising either in the demonstration</td></tr>
+<tr><td>Cloud Sync vs Connect Sync</td><td>Decide in Phase 3 against the AD design</td></tr>
+<tr><td>Hosting after the lab</td><td>Decided Oct 23: Azure Container Apps (consumption, 0-1 replicas) with a managed identity; image on ghcr.io. App Service was considered and not used</td></tr>
+<tr><td>Repository and ownership issue</td><td>Resolve the git ownership warning and approve creating a private repository</td></tr>
+</tbody></table>
+
+<p class="muted">Status Oct 24, 2026: Phase 1 steps 1.1 to 1.7 exist in the tenant, Key Vault exists, and the app is deployed to Azure Container Apps. Current state lives in the plan (Current state and status log). Items still open are tagged open or planned.</p>
+
+<section id="azure-free-service-research">
+<h2>12 Azure free-service inventory and cost recommendations</h2>
+<p class="change"><strong>Superseded (Decision Oct 23, 2026):</strong> hosting is Azure Container Apps with the image on ghcr.io and source control on GitHub; Azure DevOps is not needed. Local-hosting, App Service, Static Web Apps, Functions and Azure DevOps recommendations below are kept as research history.</p>
+<p class="muted">Added October 12, 2026. Cost research supplements section 10; the original design and its historical cost notes are preserved.</p>
+
+<p>Research date: October 12, 2026. Best-effort inventory and cost recommendation. No Azure deployment, subscription eligibility check or tenant/license change was performed.</p>
+<p><strong>Recommendation: target $0 incremental Azure cost for the core dashboard on existing local hardware. Keep licensed identity sources and optional cloud demonstrations in a separate cost ledger.</strong> Existing paid subscriptions can make incremental cost zero; that does not make their features free.</p>
+
+<nav><a href="#azure-cost-recommendations">Entity 360 choices</a><a href="#azure-cost-inventory">Catalog inventory</a><a href="#azure-cost-additional">Additional offers</a><a href="#azure-cost-cautions">Cost traps</a><a href="#azure-cost-changes">Suggested design changes</a></nav>
+<h3>What free means</h3><p>Distinguish an ongoing free SKU, a recurring allowance on a metered service, a free control plane managing paid resources, a time-limited offer, and a feature included in an existing paid license. The Azure account credit is $200 for 30 days for eligible new customers; account-based 12-month offers are not an ongoing foundation. Continued use and overages can require pay-as-you-go. Special product offers have their own eligibility/start dates. <a href="https://azure.microsoft.com/en-us/pricing/purchase-options/azure-account">Azure account terms</a>.</p>
+<h3 id="azure-cost-recommendations">Entity 360 choices</h3><table><thead><tr><th>Component</th><th>Free allowance / cost class</th><th>Entity 360 decision</th><th>Source</th></tr></thead><tbody><tr><td>Local Node/Express hosting</td><td>$0 additional Azure hosting</td><td>Keep Phase 1 here; electricity, existing hardware and existing licenses are separate costs.</td><td><a href="https://learn.microsoft.com/en-us/azure/governance/resource-graph/overview">Microsoft details</a></td></tr><tr><td>Entra app registration and basic SSO</td><td>No per-registration hosting charge</td><td>Premium source features still need their licenses; use existing entitlements only when valid.</td><td><a href="https://learn.microsoft.com/en-us/entra/fundamentals/licensing">Microsoft details</a></td></tr><tr><td>Azure Resource Graph</td><td>Free, throttled</td><td>Inventory resources and supported configuration across authorized scopes.</td><td><a href="https://learn.microsoft.com/en-us/azure/governance/resource-graph/overview">Microsoft details</a></td></tr><tr><td>Azure Activity Log</td><td>Free native 90-day retention</td><td>Read control-plane events directly. This is not a record of every CLI command or data-plane action.</td><td><a href="https://learn.microsoft.com/en-us/azure/azure-monitor/fundamentals/activity-log">Microsoft details</a></td></tr><tr><td>App Service F1</td><td>60 CPU minutes/day; 1 GB RAM and storage</td><td>Closest free hosted demo candidate for the existing Node app. Shared compute, no production SLA; validate runtime and session behavior.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/app-service/windows/">Microsoft details</a></td></tr><tr><td>Container Apps Consumption</td><td>180,000 vCPU-s; 360,000 GiB-s; 2 million requests/month/subscription</td><td>Optional container hosting with min replicas 0. Logs, registry, storage and other supporting resources can cost extra; ephemeral sessions need handling.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/container-apps/">Microsoft details</a></td></tr><tr><td>Static Web Apps Free</td><td>100 GB bandwidth/subscription; 0.5 GB storage; 2 custom domains/app</td><td>Good for public demo/static references. Free built-in authentication is not the same as the proposed custom registration and delegated-token BFF. Custom authentication is unavailable on Free.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/app-service/static/">Microsoft details</a></td></tr><tr><td>Functions Consumption / Flex</td><td>Classic: 1 million executions + 400,000 GB-s; Flex on-demand: 250,000 + 100,000 GB-s/month</td><td>Free grants depend on plan and subscription; storage/network are separate. More restructuring than hosting Express directly.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/functions/">Microsoft details</a></td></tr><tr><td>Azure SQL Database free offer</td><td>Up to 10 databases; each 100,000 vCore-s, 32 GB data + 32 GB backup/month</td><td>Optional cloud history. Enable auto-pause at the free limit. Local SQLite or bounded JSON storage is simpler initially.</td><td><a href="https://learn.microsoft.com/en-us/azure/azure-sql/database/free-offer?view=azuresql">Microsoft details</a></td></tr><tr><td>Cosmos DB free tier</td><td>1,000 RU/s provisioned throughput + 25 GB</td><td>Optional store; explicitly select an eligible free-tier account. Do not assume serverless or all Cosmos offerings qualify.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/cosmos-db/">Microsoft details</a></td></tr><tr><td>Azure DevOps Basic</td><td>First 5 users; private repositories and Boards; 2 GiB Artifacts</td><td>Cost-conscious alternative for private source control. Hosted CI grant: 1 parallel job/1,800 min monthly; a grant request may be necessary. One self-hosted parallel job has unlimited minutes on your hardware.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/devops/azure-devops-services/">Microsoft details</a></td></tr><tr><td>Logic Apps Consumption</td><td>First 4,000 built-in actions free</td><td>Use for a small isolated demonstration. Managed connectors and retained run data can be billed; Standard has a different compute model.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/logic-apps/">Microsoft details</a></td></tr><tr><td>Automation</td><td>500 job-runtime minutes/month</td><td>Optional scheduled lab collector. Source permission/licensing still applies; a local scheduled task avoids cloud job charges.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/automation/">Microsoft details</a></td></tr><tr><td>Monitor / Log Analytics</td><td>Analytics PAYG: first 5 GB/month per billing account; normal included retention 31 days</td><td>Shared allowance, not per workspace. Selected table plans, retention, alerts, exports and Sentinel are separately priced. Start with local authorization logs and add a narrow KQL lab.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/monitor/">Microsoft details</a></td></tr><tr><td>Key Vault Standard</td><td>Not an ongoing free tier</td><td>Optional small paid exception for managed signing. Metered key/secret operations; certificate renewals have separate pricing. Do not create empty auxiliary vaults or HSM resources just for the diagram.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/key-vault/">Microsoft details</a></td></tr></tbody></table>
+<p>Free allowance calculations are shared at the scope shown, not a fresh quota for every application. An always-on container with 0.25 vCPU and 0.5 GiB would allocate approximately 648,000 vCPU-seconds and 1,296,000 GiB-seconds over 30 days, both above the Container Apps grant. This is a capacity calculation, not a price estimate. Scale to zero if cloud hosting is chosen.</p>
+<h3 id="azure-cost-inventory">Complete retrieved catalog inventory</h3><p>86 offer rows; 83 distinct labels. Classification below follows Microsoft's catalog, not an independent declaration that every product can be deployed at zero cost. <a href="https://azure.microsoft.com/en-gb/pricing/free-services/">Official catalog</a>.</p>
+<div class="cols"><div><h4>Ongoing / free component: 66 entries</h4><table><thead><tr><th>#</th><th>Service / feature</th></tr></thead><tbody><tr><td>1</td><td>AI Search</td></tr><tr><td>2</td><td>Language</td></tr><tr><td>3</td><td>AI Bot Service</td></tr><tr><td>4</td><td>AI Immersive Reader</td></tr><tr><td>5</td><td>Health Bot</td></tr><tr><td>6</td><td>Speech to Text</td></tr><tr><td>7</td><td>Text to Speech</td></tr><tr><td>8</td><td>Speech Translation</td></tr><tr><td>9</td><td>Translator</td></tr><tr><td>10</td><td>Face</td></tr><tr><td>11</td><td>Machine Learning</td></tr><tr><td>12</td><td>Open Datasets</td></tr><tr><td>13</td><td>Content Safety</td></tr><tr><td>14</td><td>Data Catalog</td></tr><tr><td>15</td><td>Data Factory</td></tr><tr><td>16</td><td>App Service</td></tr><tr><td>17</td><td>AKS</td></tr><tr><td>18</td><td>VM Image Builder</td></tr><tr><td>19</td><td>Batch</td></tr><tr><td>20</td><td>Functions</td></tr><tr><td>21</td><td>Static Web Apps</td></tr><tr><td>22</td><td>Container Storage</td></tr><tr><td>23</td><td>Container Apps</td></tr><tr><td>24</td><td>Service Fabric</td></tr><tr><td>25</td><td>Cosmos DB</td></tr><tr><td>26</td><td>DocumentDB</td></tr><tr><td>27</td><td>Database Migration Service</td></tr><tr><td>28</td><td>SQL Database</td></tr><tr><td>29</td><td>App Configuration</td></tr><tr><td>30</td><td>Deployment Environments​</td></tr><tr><td>31</td><td>DevOps</td></tr><tr><td>32</td><td>DevTest Labs</td></tr><tr><td>33</td><td>Visual Studio Code</td></tr><tr><td>34</td><td>Arc</td></tr><tr><td>35</td><td>Active Directory B2C</td></tr><tr><td>36</td><td>Entra ID Free</td></tr><tr><td>37</td><td>API Management</td></tr><tr><td>38</td><td>Event Grid</td></tr><tr><td>39</td><td>Health Data Services</td></tr><tr><td>40</td><td>Logic Apps</td></tr><tr><td>41</td><td>Maps</td></tr><tr><td>42</td><td>IoT Edge</td></tr><tr><td>43</td><td>IoT Hub</td></tr><tr><td>44</td><td>Advisor</td></tr><tr><td>45</td><td>Automation</td></tr><tr><td>46</td><td>Automanage</td></tr><tr><td>47</td><td>Lighthouse</td></tr><tr><td>48</td><td>Managed Applications catalog</td></tr><tr><td>49</td><td>Policy</td></tr><tr><td>50</td><td>Resource Mover</td></tr><tr><td>51</td><td>Update Manager</td></tr><tr><td>52</td><td>Cloud Shell</td></tr><tr><td>53</td><td>Cost Management</td></tr><tr><td>54</td><td>Monitor</td></tr><tr><td>55</td><td>Resource Manager</td></tr><tr><td>56</td><td>Migrate</td></tr><tr><td>57</td><td>Storage Mover</td></tr><tr><td>58</td><td>Notification Hubs</td></tr><tr><td>59</td><td>Bandwidth (Data Transfer)</td></tr><tr><td>60</td><td>Network Watcher</td></tr><tr><td>61</td><td>Private Link</td></tr><tr><td>62</td><td>Virtual Network</td></tr><tr><td>63</td><td>Attestation</td></tr><tr><td>64</td><td>Security Center</td></tr><tr><td>65</td><td>SignalR Service</td></tr><tr><td>66</td><td>Web PubSub</td></tr></tbody></table></div><div><h4>Temporary: 20 entries</h4><table><thead><tr><th>#</th><th>Service / feature</th></tr></thead><tbody><tr><td>1</td><td>Document Intelligence</td></tr><tr><td>2</td><td>AI Custom Vision</td></tr><tr><td>3</td><td>Vision</td></tr><tr><td>4</td><td>Face</td></tr><tr><td>5</td><td>Linux VMs</td></tr><tr><td>6</td><td>Windows VMs</td></tr><tr><td>7</td><td>Container Registry</td></tr><tr><td>8</td><td>Cosmos DB</td></tr><tr><td>9</td><td>Database for MySQL</td></tr><tr><td>10</td><td>Database for PostgreSQL</td></tr><tr><td>11</td><td>SQL Managed Instance</td></tr><tr><td>12</td><td>Service Bus</td></tr><tr><td>13</td><td>Bandwidth (Data Transfer)</td></tr><tr><td>14</td><td>Load Balancer</td></tr><tr><td>15</td><td>VPN Gateway</td></tr><tr><td>16</td><td>Key Vault</td></tr><tr><td>17</td><td>Archive Storage</td></tr><tr><td>18</td><td>Files</td></tr><tr><td>19</td><td>Blob Storage</td></tr><tr><td>20</td><td>Managed Disks</td></tr></tbody></table></div></div>
+<p>Duplicate names represent different offers. The inventory intentionally includes tooling and control-plane features as well as hosted products. Product availability and account eligibility require verification before deployment.</p>
+<h3 id="azure-cost-additional">Additional offers and distinctions found outside the catalog list</h3><table><thead><tr><th>Additional service / distinction</th><th>Availability / limit</th><th>Source</th></tr></thead><tbody><tr><td>Resource Graph</td><td>Ongoing free query service, subject to throttling.</td><td><a href="https://learn.microsoft.com/en-us/azure/governance/resource-graph/overview">Microsoft details</a></td></tr><tr><td>Activity Log</td><td>Native Azure management events retained free for 90 days.</td><td><a href="https://learn.microsoft.com/en-us/azure/azure-monitor/fundamentals/activity-log">Microsoft details</a></td></tr><tr><td>Managed identities / basic Entra built-in roles</td><td>Identity features have no separate license requirement for managed identities; the host and target service can cost money.</td><td><a href="https://learn.microsoft.com/en-us/entra/fundamentals/licensing">Microsoft details</a></td></tr><tr><td>Entra External ID core</td><td>First 50,000 monthly active users free; premium add-ons are not. Customer identity is not a replacement for workforce investigation licensing.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/microsoft-entra-external-id/">Microsoft details</a></td></tr><tr><td>Cloud Shell ephemeral sessions</td><td>Free shell without a storage account; persistent Files storage has regular charges.</td><td><a href="https://learn.microsoft.com/en-us/azure/cloud-shell/get-started/ephemeral">Microsoft details</a></td></tr><tr><td>Data Explorer free cluster</td><td>One-year lab offer; Microsoft may renew it. Approximately 100 GB uncompressed, no Azure subscription or card required. Not an SLA-backed permanent Log Analytics replacement.</td><td><a href="https://learn.microsoft.com/en-us/azure/data-explorer/start-for-free">Microsoft details</a></td></tr><tr><td>Document Intelligence F0</td><td>Ongoing free test tier exists in addition to the catalog's temporary S0 offer. Verify the F0 page/transaction limits for the current API.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/document-intelligence/">Microsoft details</a></td></tr><tr><td>Content Safety Free</td><td>5,000 text records and 5,000 images monthly; the catalog incorrectly shows an AKS allowance in this row.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/content-safety/">Microsoft details</a></td></tr><tr><td>DevOps components</td><td>Boards, Repos, Pipelines and Artifacts have included/free allowances; Test Plans and advanced security are separate.</td><td><a href="https://azure.microsoft.com/en-us/pricing/details/devops/azure-devops-services/">Microsoft details</a></td></tr><tr><td>Azure App Testing</td><td>30-day trial including first 100 Playwright test minutes; use local Playwright for recurring zero Azure spend.</td><td><a href="https://azure.microsoft.com/en-ca/pricing/details/app-testing/">Microsoft details</a></td></tr></tbody></table>
+<h3 id="azure-cost-cautions">Cost traps and availability corrections</h3>
+<ul>
+<li><strong>Free control plane is not free infrastructure:</strong> AKS, Batch, Service Fabric, Machine Learning, VM Image Builder, DevTest Labs, Deployment Environments and migration tools can provision or use billed compute, storage and networking. Do not deploy these for Entity 360 merely because the coordinating service is free.</li>
+<li><strong>Private Link:</strong> the service component can be free; private endpoints and processed traffic are billed. Avoid them for the initial local demonstration. <a href="https://azure.microsoft.com/en-us/pricing/details/private-link/">Microsoft details</a>.</li>
+<li><strong>Cloud Shell:</strong> use ephemeral sessions for no persistent-storage bill. Mounting Azure Files incurs storage charges. <a href="https://learn.microsoft.com/en-us/azure/cloud-shell/pricing">Microsoft details</a>.</li>
+<li><strong>Arc and Update Manager:</strong> Arc's base control plane does not make its add-on services free. Update Manager's free Azure VM treatment does not apply universally to Arc servers.</li>
+<li><strong>Log Analytics:</strong> its shared 5 GB allowance does not make Sentinel, all log-table plans, custom metrics, alerting, export or extra retention free. Limit diagnostic categories instead of collecting every Windows event.</li>
+<li><strong>Catalog errors:</strong> Content Safety incorrectly lists an AKS quota. Other pages disagree about some quotas and naming. Product-specific documentation takes precedence.</li>
+<li><strong>B2C:</strong> unavailable to new customers since May 1, 2025. Use an appropriate modern identity option; do not build this workforce dashboard around a legacy catalog entry. <a href="https://learn.microsoft.com/en-us/azure/active-directory-b2c/faq">Microsoft details</a>.</li>
+<li><strong>Legacy / retirement planning:</strong> Data Catalog documentation is archived under previous versions. Automanage Best Practices retires September 30, 2027; Custom Vision retires September 25, 2028. Do not add these to Entity 360's foundation. <a href="https://learn.microsoft.com/en-us/azure/automanage/how-to-disable-automanage">Microsoft details</a>; <a href="https://learn.microsoft.com/en-us/azure/ai-services/custom-vision-service/migration-options">Microsoft details</a>.</li>
+<li><strong>SQL Managed Instance:</strong> its separate free offer lasts 12 months from activation and stops afterward; unlike the ongoing SQL Database offer, it is not a long-term free database choice. <a href="https://learn.microsoft.com/en-us/azure/azure-sql/managed-instance/free-offer?view=azuresql">Offer details</a>.</li>
+<li><strong>Identity licensing:</strong> Conditional Access, PIM and advanced Governance need appropriate premium licenses. Graph sign-in-log downloads need Entra P1/P2. Intune and Defender source access also depends on relevant licensing and authorization. Basic SSO or a free host does not remove those requirements. <a href="https://learn.microsoft.com/en-us/entra/fundamentals/licensing">Microsoft details</a>; <a href="https://learn.microsoft.com/en-us/graph/api/resources/signin?view=graph-rest-1.0">Microsoft details</a>.</li>
+<li><strong>Budget alerts:</strong> notify; they do not stop consumption. Use free SKUs with enforced caps where possible, plus carefully chosen policies and explicit opt-in for paid additions. <a href="https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/tutorial-acm-create-budgets">Microsoft details</a>.</li>
+</ul>
+<h3 id="azure-cost-changes">Suggested changes to the design, not applied</h3>
+<ol>
+<li><em>(Hosting superseded Oct 23: Container Apps.)</em> Separate the core investigation dashboard from optional SC-300 exercises. Keep local hosting, local bounded evidence storage, delegated source reads and the local device collector as the core. Show licensed-feature gaps honestly.</li>
+<li>Make Key Vault a deliberate low-cost exception rather than mandatory for a $0 core. A local OS-protected key and tested signing integration can avoid cloud signing charges, but do not weaken key protection just to remove a small bill. If managed non-exportable signing is the preferred exercise, use Standard and only the actual required vault.</li>
+<li>Skip the proposed automation and CI vaults until a concrete secret exists. Managed identity and OIDC federation do not themselves require storing secrets in those vaults.</li>
+<li>Use local scheduled tasks for core snapshots. Build one small Logic Apps Consumption workflow separately to demonstrate that skill; count built-in actions, connector calls and retained data.</li>
+<li>Keep authorization logs local initially. Add narrow Log Analytics/KQL exercises within verified allowances when needed. Do not enable Sentinel as a default dashboard dependency.</li>
+<li><em>(Superseded Oct 23: GitHub chosen.)</em> Consider Azure DevOps Basic for private repositories with branch and pull-request policies. Use local CI/security scanning or included pipeline capacity; advanced cloud security scanning remains a separate paid choice. <a href="https://learn.microsoft.com/en-us/azure/devops/repos/git/secure-repositories-pull-requests?view=azure-devops">Azure Repos policies</a>.</li>
+<li><em>(Superseded Oct 23: Container Apps chosen.)</em> If a hosted demonstration is needed, prove App Service F1 first. Consider Container Apps Consumption when container portability is worth the extra session, storage and registry work. Static Web Apps Free suits a static demo, but not the present custom-auth backend without redesign.</li>
+<li>Run V2 AD/IIS/sync connector on existing local virtualization where practical. Windows Server evaluation is temporary, not a perpetual production license. Application Proxy and premium governance stay in the licensing ledger.</li>
+<li>Keep a per-resource ledger: free SKU/allowance, shared quota scope, eligibility end date, projected usage, paid dependencies, cleanup owner and portal cost link. Default paid features off.</li>
+</ol>
+<p><strong>Practical target:</strong> $0 extra Azure spend for the local core; near-zero cloud demo usage only if all relevant grants and dependencies are satisfied; a separately approved small paid allowance if Key Vault or another capability materially simplifies the lab. Actual license ownership and Azure offer eligibility were not checked in this research.</p>
+<p>This research was originally saved separately, then incorporated here at the user's request. It records recommendations; no Azure deployment or tenant configuration change was performed.</p>
+
+</section>
+<section id="split">
+<h2>13 End user and admin split, device tests, and the script pipeline (agreed Oct 24, 2026)</h2>
+<p class="change"><strong>Registration decision (Oct 24, 2026).</strong> The existing live registration "Entity 360" (appId 00000000-0000-4000-8000-0000000000a3) becomes the admin portal and keeps its scopes, app roles, Conditional Access and redirect URIs. A new, separate, minimal registration "Entity 360 User" is created later for the user portal. Neither change has been made yet.</p>
+<h3>Goal</h3>
+<p>Same data, two audiences. End users run diagnostics as themselves with minimal rights and answer one question: can I actually reach the shares, sites and apps I should? Admins see all of Azure plus who is granted access to each share, site and app. Admins can also request tests that run as the user, on the user's device.</p>
+<h3>Three parts, one shared data model</h3>
+<div class="card"><h3>User portal</h3><p>A new registration, "Entity 360 User" (plan step 4.2, tenant change, not created). Uses the signed-in user's own token only, with delegated User.Read and only what end-user self-diagnostics need. It shows what the user is expected to have against what actually works. It contains no admin code paths.</p></div>
+<div class="card"><h3>Admin portal</h3><p>The existing "Entity 360" registration and the hosted app-e360, keeping its broad delegated read scopes and four app roles. Plan step 4.1 hardens it: Conditional Access requiring MFA and a compliant device, and PIM-gated app roles. It shows the full Azure and access view, and it is where device tests are requested.</p></div>
+<div class="card"><h3>Device agent through Intune Remediations</h3><p>Detection scripts run as the logged-on user. Their output (JSON, kept under about 2,048 characters) is read through Microsoft Graph at deviceHealthScripts/{id}/deviceRunStates, field preRemediationDetectionScriptOutput. Remediations require Windows Enterprise E3/E5 rights, which Microsoft 365 E7 covers. Custom compliance scripts are the option when a failed check should block access through Conditional Access. Plain Intune platform scripts return no readable output, so they are not used for this.</p></div>
+<p><strong>Local collector ("Collect this computer").</strong> Works only when the browser and server run on the same PC (localhost). In the hosted app it would read the container, so snapshot import is the hosted fallback. Intune Remediations are the target design for device data.</p>
+<h3>No impersonation</h3>
+<p>Admins never hold a user's token. "Test as user" means the admin requests a test, Intune runs the reviewed script in the user's context on their device, and the result returns to the admin portal with the requester, time and reason recorded for audit. Entra does not let admins mint user tokens, and literal impersonation would fail an audit.</p>
+<h3>Why split</h3>
+<p>The user side is low-privilege; the admin side holds powerful tokens. If both shared one app and one session store, a bug in the user view could become an admin breach.</p>
+<h3>Timing, accepted</h3>
+<p>Remediations run on a schedule, hourly at best. A single-device run-now still takes minutes. The owner accepted this. A persistent real-time agent on the device was rejected because of its larger attack surface.</p>
+<h3>Script pipeline</h3>
+<p>Script, then GitHub pull request, then PSScriptAnalyzer (including its security rules) in a GitHub Action on every pull request (enforcing it as a required check is open decision (b) below), then merge, then a GitHub Action uploads the script to Intune through Microsoft Graph. That Action authenticates with GitHub OIDC workload identity federation to Entra, so no secret is stored, and its permissions are limited to Intune script management (an application permission; open decision (a) below). Intune then runs the script on devices and e360 reads the results.</p>
+<p>GitHub is the source of truth. Intune never fetches from GitHub itself; it holds its own copy uploaded by the Action. CodeQL does not analyze PowerShell, so PSScriptAnalyzer is the gate. GitHub Copilot code review (a separate license, not part of Microsoft 365 E7) is optional later as a second opinion, not a gate.</p>
+<h3>First example device check</h3>
+<p>Network connectivity: DNS resolution, Test-NetConnection against a few targets, and latency. The script prints one line of JSON and exits 0 when healthy, 1 when there is a problem.</p>
+<h3>Open decisions (not resolved)</h3>
+<table><thead><tr><th>Item</th><th>Status</th></tr></thead><tbody>
+<tr><td>(a) Deploy identity application permission</td><td>OPEN. The upload Action's identity needs <code>DeviceManagementScripts.ReadWrite.All</code> (application), an exception to "no application permissions". Options: accept as a named exception (deploy only, never reads data) or drop automated upload. Decision pending.</td></tr>
+<tr><td>(b) PSScriptAnalyzer as an enforced required check</td><td>OPEN. Required status checks on a private repository need GitHub Pro (section 10 records "do not buy Pro") or a public repository. Decision pending.</td></tr>
+</tbody></table>
+<h3>Deferred to-dos</h3>
+<table><thead><tr><th>Item</th><th>Plan</th></tr></thead><tbody>
+<tr><td>Restrict ingress</td><td>-AllowedIp on the deploy script, or a Conditional Access policy</td></tr>
+<tr><td>Pin the image</td><td>Deploy the dated image tag instead of :latest</td></tr>
+<tr><td>Logging</td><td>Cheapest possible option: a free-tier Log Analytics workspace</td></tr>
+</tbody></table>
+<p class="muted">Not done yet: nothing in this section has been created in the tenant, in Intune or in GitHub.</p>
+</section>
+</div></body></html>

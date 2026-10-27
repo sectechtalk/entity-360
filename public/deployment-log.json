@@ -1,0 +1,9 @@
+{
+  "title": "Deployment / onboarding log",
+  "note": "Sample: populate with your own onboarding steps.",
+  "machines": [],
+  "status": { "columns": [], "rows": {} },
+  "steps": [],
+  "commands": [],
+  "troubleshooting": []
+}

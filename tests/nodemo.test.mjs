@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createApp } from '../server/index.mjs';
+
+test('DEMO_MODE off: signed-out sessions get 401 and sign-in, never demo data', async t => {
+  const mock = { getAuthCodeUrl: async () => 'https://login.example.test/authorize', acquireTokenByCode: async () => { throw Object.assign(new Error('x'), { errorCode: 'invalid_grant', errorMessage: 'AADSTS50105: not assigned' }); } };
+  const server = createApp({ port: 3661, demoMode: false, confidential: true, createConfidential: () => mock, certificate: () => ({ thumbprint: 'A'.repeat(40), privateKey: 'test' }) }).listen(3661, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = 'http://127.0.0.1:3661';
+  const root = await fetch(base + '/', { redirect: 'manual' });
+  assert.equal(root.status, 302);
+  assert.equal(root.headers.get('location'), '/auth/login');
+  const first = await fetch(base + '/api/session');
+  const session = await first.json();
+  const cookie = first.headers.get('set-cookie').split(';')[0];
+  assert.equal(session.mode, 'signedout');
+  assert.equal(session.demoMode, false);
+  const headers = { Cookie: cookie };
+  const entities = await fetch(base + '/api/entities?q=Alex', { headers });
+  assert.equal(entities.status, 401);
+  const body = await entities.json();
+  assert.equal(body.signin, '/auth/login');
+  assert.equal(body.entities, undefined);
+  assert.equal((await fetch(base + '/api/investigate?id=00000000-0000-0000-0000-000000000001', { headers })).status, 401);
+  const demo = await fetch(base + '/api/demo', { method: 'POST', headers: { ...headers, 'X-CSRF-Token': session.csrf, 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(demo.status, 401);
+  assert.equal((await (await fetch(base + '/api/session', { headers })).json()).mode, 'signedout');
+  await fetch(base + '/auth/login', { redirect: 'manual', headers });
+  const s2 = await (await fetch(base + '/api/session', { headers })).json();
+  assert.equal(s2.mode, 'signedout');
+  const cb = await fetch(base + '/auth/callback?code=' + 'c'.repeat(20) + '&state=wrong', { redirect: 'manual', headers });
+  assert.equal(cb.status, 302);
+  assert.equal(cb.headers.get('location'), '/auth/error');
+  const err = await fetch(base + '/auth/error', { headers });
+  assert.equal(err.status, 401);
+  assert.match(await err.text(), /Sign-in failed/);
+});

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Investigate Microsoft identity activity, access, and policies in one viewer-scoped workspace.">
+  <title>Entity 360 · Identity investigation</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/styles.css"><script src="/theme.js"></script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to investigation</a>
+<aside class="sidebar">
+  <a class="brand" href="/"><span class="brand-mark">◈</span><span>Entity <b>360</b><small>IDENTITY WORKSPACE</small></span></a>
+  <nav id="navigation" aria-label="Main navigation">
+    <div class="nav-label">INVESTIGATE</div>
+    <button data-view="summary" class="nav-item active"><span data-icon="overview"></span>Summary</button>
+    <button data-view="signins" class="nav-item"><span data-icon="user"></span>Sign-ins</button>
+    <button data-view="access" class="nav-item"><span data-icon="shield"></span>Access</button>
+    <button data-view="devices" class="nav-item"><span data-icon="device"></span>Devices</button>
+    <button data-view="activity" class="nav-item"><span data-icon="activity"></span>Azure activity</button>
+    <button data-view="health" class="nav-item"><span data-icon="check"></span>Health checks</button>
+    <div class="nav-label">MY ACCOUNT</div>
+    <button data-view="my-summary" class="nav-item"><span data-icon="overview"></span>Summary</button>
+    <button data-view="my-signins" class="nav-item"><span data-icon="user"></span>My sign-ins</button>
+    <button data-view="my-access" class="nav-item"><span data-icon="shield"></span>My access</button>
+    <button data-view="my-device" class="nav-item"><span data-icon="device"></span>My device</button>
+    <div class="nav-label">MORE TOOLS</div>
+    <button data-view="licenses" class="nav-item"><span data-icon="key"></span>Licenses</button>
+    <button data-view="billing" class="nav-item"><span data-icon="document"></span>Billing</button>
+    <button data-view="deployment" class="nav-item"><span data-icon="activity"></span>Deployment/Onboarding</button>
+    <button data-view="portals" class="nav-item"><span data-icon="cloud"></span>Azure Portals</button>
+    <button data-view="defender" class="nav-item"><span data-icon="shield"></span>Defender</button>
+  </nav>
+  <div class="sidebar-bottom"><button id="error-lookup-open" class="nav-item" aria-haspopup="dialog"><span data-icon="info"></span>Error code lookup</button><button id="connection-button" class="nav-item"><span data-icon="settings"></span>Connection &amp; setup</button><a href="/setup.html" target="_blank" rel="noopener" class="guide-link">Setup guide <span>↗</span></a></div>
+</aside>
+<div class="workspace">
+  <header class="topbar">
+    <div id="current-entity" class="current-entity" aria-live="polite"><span class="entity-avatar" id="current-initials">?</span><span><strong id="current-name">No user selected</strong><small id="current-detail">Use Change user to pick someone</small></span></div>
+    <div class="search-wrap"><label for="entity-search" class="search-label">Change user</label><span data-icon="search"></span><input id="entity-search" type="search" autocomplete="off" placeholder="Name, email, app ID or object ID" aria-label="Change user" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list"><kbd>/</kbd><div id="search-results" class="search-results" role="listbox" hidden></div></div>
+    <div class="topbar-right"><button id="theme-toggle" class="btn" type="button" aria-pressed="true" title="Switch to light mode"><span class="theme-label">Light mode</span></button><button id="range-button" class="btn" title="Date range for Summary, Sign-ins, Access and Azure activity"><span data-icon="calendar"></span><span id="range-label">Last 7 days</span><span>UTC</span></button><span id="mode-badge" class="mode-badge">DEMO DATA</span><button id="viewer-button" class="btn" title="Connection and sign-in"><span class="viewer-avatar" id="viewer-initials">ML</span><span id="viewer-name">Loading</span></button></div>
+  </header>
+  <main id="main" tabindex="-1">
+    <div class="page-heading"><div><div class="eyebrow">ENTITY 360 <span>/</span> <span id="breadcrumb">SUMMARY</span></div><h1 id="page-title">Summary</h1><p id="page-subtitle"></p></div><div class="heading-actions"><button id="header-export" class="btn" data-why="Nothing on this page to export yet"><span data-icon="download"></span>Export</button><button id="refresh-button" class="btn" data-why="Loading"><span data-icon="refresh"></span>Refresh</button></div></div>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div id="partial-banner" class="notice" role="status" hidden></div>
+    <div id="loading" class="loading" hidden><span class="spinner"></span><span>Collecting authorized evidence</span></div>
+    <div id="empty-state" class="empty-state" hidden><span data-icon="search"></span><h2>Pick a user</h2><p id="empty-reason">No user is selected. Use Change user at the top (press /) to pick a person, application or managed identity.</p><button id="focus-search" class="btn">Change user</button></div>
+
+    <section id="summary-page" class="page" hidden>
+      <div id="entity-header"></div>
+      <div id="summary-cards" class="summary-grid"></div>
+      <footer class="report-footer"><span><span class="status-dot"></span><span id="coverage-footer"></span></span><span id="updated-at"></span><ul id="coverage-sources" class="coverage-sources"></ul></footer>
+    </section>
+
+    <section id="signins-page" class="page" hidden>
+      <div class="split" id="signin-split">
+        <section class="panel"><div class="panel-heading"><div><h2>Sign-ins <span id="signin-count" class="count"></span></h2><p id="signin-range-note">Interactive sign-ins for the selected user and date range. Select a row for details.</p></div><div class="filter-row"><label>Result <select id="signin-result-filter"><option value="all">All results</option><option value="Success">Succeeded</option><option value="Blocked">Blocked</option><option value="Failed">Failed</option></select></label></div></div>
+          <div class="table-wrap table-scroll"><table class="event-table"><thead><tr><th>Time <span class="muted">UTC</span></th><th>Application</th><th>Result</th><th>IP address</th></tr></thead><tbody id="signin-table-rows"></tbody></table></div>
+          <div id="signin-table-empty" class="inline-empty" hidden></div>
+          <div id="signin-table-pager"></div>
+        </section>
+        <aside id="signin-drawer" class="panel drawer" aria-labelledby="drawer-title" hidden></aside>
+      </div>
+      <details id="signin-lookup-panel" class="panel lookup-details"><summary>Detailed lookup: several users, a custom lookback, Graph beta details</summary>
+      <div class="panel-heading"><div><h2 id="signin-lookup-title">Detailed lookup</h2><p>Runs only when you click Look up sign-ins. Use it for several users at once or for Graph beta authentication details. The table above already covers the selected user.</p></div><span data-icon="user"></span></div>
+      <form id="signin-lookup-form" class="signin-form">
+        <div class="signin-form-grid"><label class="signin-users-label" for="signin-users">User principal names<textarea id="signin-users" rows="2" placeholder="user@company.com, another@company.com" required aria-describedby="signin-users-help"></textarea><small id="signin-users-help">Up to 10 users, separated by commas or new lines.</small></label><div><label for="signin-lookback">Look back</label><div class="signin-lookback-controls"><input id="signin-lookback" type="number" value="3" min="0.25" max="2160" step="0.25" required aria-label="Lookback amount"><select id="signin-lookback-unit" aria-label="Lookback unit"><option value="hours">Hours</option><option value="days">Days</option></select></div><div class="signin-presets"><button type="button" class="btn" data-signin-hours="1">1h</button><button type="button" class="btn" data-signin-hours="3">3h</button><button type="button" class="btn" data-signin-hours="6">6h</button><button type="button" class="btn" data-signin-hours="24">24h</button></div></div></div>
+        <div class="signin-user-actions"><button type="button" id="signin-use-selected" class="btn">Use selected user</button><button type="button" id="signin-use-defaults" class="btn">Use lab users</button></div>
+        <details class="signin-options"><summary>Lookup options</summary><div class="signin-checkboxes"><label><input type="checkbox" id="signin-detail">Show every event separately</label><label><input type="checkbox" id="signin-all-policies">Include policies that did not apply</label><label><input type="checkbox" id="signin-beta">Request authentication and session details (Graph beta)</label><label><input type="checkbox" id="signin-noninteractive">Include noninteractive sign-ins (Graph beta)</label></div><p>Beta is optional and may change. Missing fields mean “not returned.” Noninteractive activity can include token renewal and other background authentication.</p></details>
+        <div class="signin-submit-row"><span id="signin-mode-note" class="muted"></span><button id="signin-run" class="btn" type="submit">Look up sign-ins</button></div>
+      </form>
+      <div id="signin-feedback" class="signin-feedback" role="status" aria-live="polite"></div>
+      <div id="signin-results" hidden><div id="signin-summary" class="signin-summary"></div><div id="signin-user-status"></div><div id="signin-filters" class="msel-bar"></div><div class="table-wrap table-scroll"><table class="signin-table" data-table-id="signins"><thead><tr><th scope="col">Date <span class="muted">UTC</span></th><th scope="col">Request ID</th><th scope="col">Application</th><th scope="col">Status</th><th scope="col">Sign-in error code</th><th scope="col">IP address</th><th scope="col">Location</th><th scope="col">Conditional Access</th><th scope="col" title="Graph beta only (signIn.agent.agentType); shows a dash for v1.0 results">Agent type</th><th scope="col" title="Graph beta only (signIn.authenticationRequirement); shows a dash for v1.0 results">Authentication requirement</th></tr></thead><tbody id="signin-rows"></tbody></table></div><div class="pagination"><label class="page-size">Rows per page <select id="signin-page-size"><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label><span id="signin-page-info"></span><div><button type="button" id="signin-prev" class="btn" aria-label="Previous sign-in results">Previous</button><button type="button" id="signin-next" class="btn" aria-label="Next sign-in results">Next</button></div></div><div id="signin-group-details" class="signin-group-details" hidden></div><p class="panel-footnote">Read only. Times are UTC. Logs may arrive several minutes late; available retention and collection limits still apply. Repeated rows preserve their individual record IDs.</p></div>
+    </details>
+    </section>
+
+    <section id="access-page" class="page" hidden>
+      <div class="tabs" role="tablist" aria-label="Access"><button class="tab" role="tab" data-tab="ca" aria-selected="true">Conditional Access</button><button class="tab" role="tab" data-tab="roles" aria-selected="false">Admin roles</button><button class="tab" role="tab" data-tab="packages" aria-selected="false">Access packages</button><button class="tab" role="tab" data-tab="groups" aria-selected="false">Groups</button><button id="access-tab-apps" class="tab" role="tab" data-tab="apps" aria-selected="false">App permissions</button></div>
+      <section class="panel" id="access-tab-body"></section>
+    </section>
+
+    <section id="devices-page" class="page" hidden><p id="devices-explain" class="page-note">These are the Intune managed devices associated with the user under investigation, read from Microsoft Graph /users/{id}/managedDevices (devices where this user is the Intune primary user). Entra-only devices that are not enrolled in Intune, shared or userless devices, and devices whose primary user is someone else are not listed. Up to 10 result pages are read. Only user identities have devices here.</p><div id="device-cards" class="device-grid"></div></section>
+
+    <section id="activity-page" class="page" hidden>
+      <div id="azure-banner" class="banner" hidden><span id="azure-banner-text">Azure is not connected, so the activity log cannot be read.</span><button id="azure-connect" class="btn">Connect Azure</button></div>
+      <section class="panel"><div class="panel-heading"><div><h2>Azure activity log <span id="event-count" class="count"></span></h2><p>Changes and operations this identity made in Azure (control plane), read from the activity log of every subscription you can access.</p></div></div>
+        <div id="activity-ondemand" class="ondemand"><p><strong>Runs only when you click Load activity log.</strong> It is not loaded with the page because it reads every subscription you can access. Results replace the previous load.</p><label>Lookback <select id="activity-days" aria-label="Activity log lookback"><option value="1" selected>1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="custom">Custom (1 to 90 days)</option></select></label> <input id="activity-days-custom" type="number" min="1" max="90" step="1" value="1" aria-label="Custom lookback in days" hidden> <button type="button" id="activity-load" class="btn">Load activity log</button> <span id="activity-status" class="muted" role="status" aria-live="polite"></span></div>
+        <div class="timeline-controls"><div class="filter-row"><div id="activity-filters" class="msel-bar msel-inline"></div><span id="filter-summary" class="muted"></span></div></div>
+        <div class="table-wrap table-scroll"><table class="event-table"><thead><tr><th>Date <span class="muted">UTC</span></th><th>Service</th><th>Category</th><th>Activity</th><th>Status</th><th>Initiated by (actor)</th></tr></thead><tbody id="event-rows"></tbody></table></div>
+        <div id="timeline-empty" class="inline-empty" hidden></div>
+        <div class="pagination"><label class="page-size">Rows per page <select id="activity-page-size"><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label><span id="page-info"></span><div><button id="previous-page" class="btn" aria-label="Previous page" data-why="Already on the first page">Previous</button><button id="next-page" class="btn" aria-label="Next page" data-why="Already on the last page">Next</button></div></div>
+      </section>
+    </section>
+
+    <section id="health-page" class="page" hidden>
+      <section id="intune-panel" hidden aria-labelledby="intune-heading"><div class="panel account-controls"><div class="panel-heading"><div><h2 id="intune-heading">Intune health run</h2><p>Is Intune set up, is this computer configured to use it, and how does Intune arrive at what it shows? Read-only; fixes are proposed, never applied.</p></div></div><div class="account-actions"><button id="intune-connect" class="btn">Microsoft connection &amp; MFA</button><button id="intune-run" class="btn">Run Intune health</button><button id="intune-export" class="btn" data-why="Run this page first; there is nothing to export yet" hidden>Export evidence JSON</button></div><div class="account-actions"><a class="btn" href="/Collect-Entity360Device.ps1" download>Download Windows collector</a><label class="btn">Import device JSON<input id="intune-import" type="file" accept=".json,application/json" hidden></label><button id="intune-collect" class="btn" data-why="Server host collection needs a Windows server">Collect server host</button><button id="intune-clear-local" class="btn" disabled data-why="No snapshot loaded">Clear computer evidence</button></div><p id="intune-local-host" class="account-note"></p><p id="intune-snapshot-note" class="account-note"></p><p id="intune-status" role="status" aria-live="polite"></p></div><div id="intune-results"></div></section>
+      <section id="coverage-panel" class="panel"><div class="panel-heading"><div><h2>Source coverage</h2><p>Which sources returned data for the selected user, and their limits.</p></div></div><div id="coverage-list" class="coverage-list"></div></section>
+      <section id="hosting-panel" class="panel" hidden><div class="panel-heading"><div><h2>Entity 360 hosting</h2><p>Direct portal links for the Azure and Entra resources that run this app.</p></div></div><div id="hosting-list" class="coverage-list"></div></section>
+    </section>
+
+    <section id="account-panel" class="page" hidden aria-labelledby="account-heading">
+      <div class="panel account-controls"><div class="account-actions"><button id="account-connect" class="btn">Microsoft connection &amp; MFA</button><label>Timeframe <select id="account-hours"><option value="1">Last hour</option><option value="3">Last 3 hours</option><option value="24" selected>Last 24 hours</option><option value="168">Last 7 days</option></select></label><button id="account-run" class="btn" data-why="Already checking">Check my account</button><button id="account-export" class="btn" data-why="Nothing collected yet" hidden>Export evidence JSON</button><span id="account-status" class="muted" role="status" aria-live="polite"></span></div></div>
+      <div id="my-summary" class="my-page"><div id="account-identity"></div><div id="my-summary-cards" class="summary-grid"></div></div>
+      <div id="my-signins" class="my-page"></div>
+      <div id="my-access" class="my-page account-grid"></div>
+      <div id="my-device" class="my-page">
+        <div id="account-cloud" class="account-grid"></div>
+        <div class="panel account-controls"><h2 id="account-heading">This computer</h2><div class="account-actions"><a class="btn" href="/Collect-Entity360Device.ps1" download>Download Windows collector</a><label class="btn">Import device JSON<input id="account-import" type="file" accept=".json,application/json" hidden></label><button id="account-collect" class="btn" data-why="Server host collection needs a Windows server">Collect server host</button><button id="account-clear-local" class="btn" data-why="No snapshot loaded">Clear local snapshot</button></div><p id="account-local-host" class="account-note"></p><details><summary>How to collect another Windows computer</summary><p>Download the collector on the computer being investigated. Open Windows PowerShell as its signed-in user and run:</p><pre>powershell.exe -NoProfile -File "$env:USERPROFILE\Downloads\Collect-Entity360Device.ps1"</pre><p>It saves a JSON file on that user’s Desktop. Import that JSON here. It reads local configuration without tenant sign-in. Windows execution policy may require reviewing and unblocking the downloaded script first.</p></details></div>
+        <div id="account-local" class="account-grid"></div>
+      </div>
+    </section>
+
+    <section id="deployment-panel" hidden><div id="deployment-content"></div></section>
+    <section id="portals-panel" hidden><div id="portals-list" class="account-grid"></div></section>
+    <section id="defender-panel" hidden><div id="defender-events"></div><div id="defender-list" class="account-grid"></div></section>
+    <section id="billing-panel" hidden><div class="panel account-controls"><h2>Billing visible to the current principal</h2><div class="account-actions"><button id="billing-connect" class="btn">Connect accounts / Azure</button><label>Window<select id="billing-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label><button id="billing-run" class="btn">Check billing</button><button id="billing-export" class="btn" data-why="Run this page first; there is nothing to export yet" hidden>Export billing evidence</button></div><p id="billing-status" role="status" aria-live="polite"></p></div><div id="billing-results"></div></section>
+    <section id="license-panel" hidden><div class="panel account-controls"><h2>License evidence by account and tenant</h2><div class="account-actions"><button id="license-connect" class="btn">Connect or switch account</button><label id="license-example-label" hidden>Demo example<select id="license-example"><option value="organization">Organization</option></select></label><label><input id="license-all" type="checkbox" checked>All connected tenants for this principal</label><button id="license-discover" class="btn">Discover other tenants</button><button id="license-run" class="btn">Check licenses</button><button id="license-export" class="btn" data-why="Run this page first; there is nothing to export yet" hidden>Export license evidence</button></div><p id="license-status" role="status" aria-live="polite"></p></div><div id="license-discovery" class="panel account-controls"></div><div id="license-results"></div></section>
+  </main>
+</div>
+<dialog id="range-dialog"><form id="range-form"><div class="dialog-heading"><div><div class="eyebrow">INVESTIGATION WINDOW</div><h2>Select timeframe</h2></div><button type="button" class="btn close-dialog" aria-label="Close">✕</button></div><div class="preset-grid"><button type="button" class="btn" data-days="1">Last 24 hours</button><button type="button" class="btn" data-days="7">Last 7 days</button><button type="button" class="btn" data-days="30">Last 30 days</button></div><div class="form-grid"><label>Start (UTC)<input id="from-date" type="datetime-local" required></label><label>End (UTC)<input id="to-date" type="datetime-local" required></label></div><p class="muted">Up to 90 days per query. Actual availability depends on each source’s retention.</p><p id="range-error" class="error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="btn close-dialog">Cancel</button><button type="submit" class="btn">Apply timeframe</button></div></form></dialog>
+<dialog id="connection-dialog"><div class="dialog-heading"><div><div class="eyebrow">WORKSPACE CONNECTION</div><h2 id="connection-title">Connect Microsoft</h2></div><button class="btn close-dialog" aria-label="Close">✕</button></div><div id="connection-content"></div></dialog>
+<dialog id="evidence-dialog" class="evidence-dialog"><div class="dialog-heading"><div><div class="eyebrow">SOURCE EVIDENCE</div><h2 id="evidence-title">Event details</h2></div><button class="btn close-dialog" aria-label="Close">✕</button></div><div id="evidence-content"></div></dialog>
+<dialog id="error-lookup-dialog" class="error-lookup-dialog" aria-labelledby="error-lookup-title"><div class="dialog-heading"><div><div class="eyebrow">MICROSOFT ENTRA</div><h2 id="error-lookup-title">Error code lookup</h2></div><button type="button" id="error-lookup-close" class="btn" aria-label="Close error lookup">✕</button></div><p>Enter a numeric code or an AADSTS code to read Microsoft’s explanation.</p><form id="error-lookup-form"><label for="error-lookup-code">Error code</label><div class="error-lookup-controls"><input id="error-lookup-code" type="text" placeholder="e.g. 53000 or AADSTS53000" maxlength="24" required autocomplete="off"><button class="btn" type="submit">Look up</button></div></form><p id="error-lookup-status" role="status" aria-live="polite"></p><a id="error-lookup-link" class="btn" href="https://login.microsoftonline.com/error" target="_blank" rel="noopener noreferrer">Open in Microsoft ↗</a><p class="muted">Public reference; no Microsoft connection required. Only the error code is included in the lookup URL. The explanation is general guidance, not proof of what caused a specific event.</p><iframe id="error-lookup-frame" title="Microsoft error code explanation" sandbox="allow-forms allow-same-origin" referrerpolicy="no-referrer" hidden></iframe><p class="muted">If the embedded page is blank or blocked, use Open in Microsoft. Microsoft may not have an entry for every code.</p></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
