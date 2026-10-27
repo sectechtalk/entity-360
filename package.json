@@ -14,7 +14,7 @@
     "check": "node --check server/my-roles.mjs && node --check server/index.mjs && node --check server/live.mjs && node --check server/entitlements.mjs && node --check server/signins.mjs && node --check public/app.js && node --check public/signins.js && node --check public/error-lookup.js && node --check server/account.mjs && node --check public/account.js && node --check server/connections.mjs && node --check server/licenses.mjs && node --check public/licenses.js && node --check server/portfolio.mjs && node --check server/billing.mjs && node --check public/billing.js && node --check server/intune.mjs && node --check public/intune.js && node --check server/authflow.mjs && node --check server/keyvault-assertion.mjs && node --check server/hosting.mjs && node --check public/access-text.js && node --check public/deployment.js && node --check public/paging.js && node --check public/defender.js && node --check public/device-links.js && node --check public/group-types.js && node --check public/activity-columns.js && node --check public/theme.js && node --check public/signin-columns.js && node --check public/col-resize.js && node --check public/defender.js"
   },
   "dependencies": {
-    "@azure/msal-node": "^3.8.0",
+    "@azure/msal-node": "^7.1.1",
     "express": "^5.1.0"
   },
   "devDependencies": {
