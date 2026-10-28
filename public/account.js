@@ -2,7 +2,8 @@ import { pageSlice, pagerHtml, wirePager, DEFAULT_PAGE_SIZE } from './paging.js'
 import { multiSelectHtml, wireMultiSelects, filterOptions, applyFilters } from './multiselect.js';
 import { GROUP_KINDS, ROLE_KINDS, ACCESS_MEMBERSHIPS, accessRows, accessLink, accessType, roleTiming, isRoleRow } from './group-types.js';
 import { partialMessage } from './access-text.js';
-import { entraDeviceLink, intuneDeviceLink, intuneMatch, PIM_ACTIVATION_LINKS } from './device-links.js';
+import { groupEligibilityTable } from './tab-tables.js';
+import { entraDeviceLink, intuneDeviceLink, intuneMatch, PIM_ACTIVATION_LINKS, joinTypeLabel } from './device-links.js';
 export function createAccountView({ api, session, esc, external, onSources, openConnection }) {
   const $ = s => document.querySelector(s);
   let report, snapshot, active = false, generation = 0;
@@ -30,7 +31,7 @@ export function createAccountView({ api, session, esc, external, onSources, open
     }
     // Each My account page shows one slice of the same report; nothing is repeated across them.
     const why = report ? 'This section was not returned. The source may be unavailable or your account lacks the permission to read it.' : 'Nothing collected yet. Choose Check my account above.';
-    const elevate = box('Elevate (PIM)', `<p>Activate an eligible role or group membership in Privileged Identity Management. Opens in a new tab.</p><div class="card-actions">${PIM_ACTIVATION_LINKS.map(([label, url]) => external(url, label)).join(' ')}</div>`);
+    const elevate = box('Elevate (PIM)', `<p>Activate an eligible role or group membership in Privileged Identity Management. Opens in a new tab.</p><div class="card-actions">${PIM_ACTIVATION_LINKS.map(([label, url]) => external(url, label)).join(' ')}</div><h3>PIM for Groups eligibility</h3>${report ? groupEligibilityTable([...(report.sections?.groups || []), ...(report.sections?.roles || [])], { esc, external, fmtTime: t => t && Number.isFinite(Date.parse(t)) ? `${new Date(t).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC` : '' }) : '<p class="account-note">Choose Check my account to list your group eligibility.</p>'}`);
     $('#my-access').innerHTML = elevate + (out.access || box('My access', `<p>${esc(why)}</p>`));
     renderGroups();
     $('#account-cloud').innerHTML = out.device || box('My devices in Entra and Intune', `<p>${esc(why)}</p>`);
@@ -49,9 +50,9 @@ export function createAccountView({ api, session, esc, external, onSources, open
   const groupState = { page: 0, size: DEFAULT_PAGE_SIZE, fx: { excluded: {}, open: null, sort: null } };
   const GROUP_COLS = [
     { key: 'mg.kind', label: 'Type', get: r => r.kind, known: [...ROLE_KINDS, ...GROUP_KINDS] },
-    { key: 'mg.assign', label: 'Assignment', get: r => r.membershipType, known: ['Assigned', 'Dynamic'] },
+    { key: 'mg.assign', label: 'Assignment', get: r => r.membershipType, known: ['Assigned', 'Dynamic', 'Eligible (PIM)'] },
     { key: 'mg.membership', label: 'Membership', get: r => r.membership, known: ACCESS_MEMBERSHIPS },
-    { key: 'mg.source', label: 'Source', get: r => r.source, known: ['Direct', 'Cloud (Entra ID)', 'Synced from on-premises AD'] },
+    { key: 'mg.source', label: 'Source', get: r => r.source, known: ['Direct', 'Cloud (Entra ID)', 'Synced from on-premises AD', 'PIM for Groups (member)', 'PIM for Groups (owner)'] },
   ];
   function renderGroups() {
     const root = document.querySelector('#my-groups'); if (!root) return;
@@ -72,7 +73,7 @@ export function createAccountView({ api, session, esc, external, onSources, open
   }
   function deviceTable(devices, managed, intune = []) {
     if (!devices.length) return '<p>No devices returned by this successful query. This does not establish the browser device is unregistered.</p>';
-    return table('<thead><tr><th>Device</th><th>Identity / OS</th><th>State</th></tr></thead><tbody>' + devices.map(d => `<tr><td>${esc(d.name)}<small>${deviceLinks(d, managed, intune)}</small></td><td>${esc(d.deviceId || 'Device ID not returned')}<small>${esc(d.os)} ${esc(d.version)}</small></td><td>${managed ? `${esc(d.compliance)} · ${esc(d.agent)}<small>Last sync: ${esc(d.lastSync)}</small>` : `${esc(d.trust || 'Trust type not returned')}<small>Managed: ${esc(unknown(d.managed))} · Compliant: ${esc(unknown(d.compliant))}</small>`}</td></tr>`).join('') + '</tbody>');
+    return table('<thead><tr><th>Device</th><th>Identity / OS</th><th>State</th></tr></thead><tbody>' + devices.map(d => `<tr><td>${esc(d.name)}<small>${deviceLinks(d, managed, intune)}</small></td><td>${esc(d.deviceId || 'Device ID not returned')}<small>${esc(d.os)} ${esc(d.version)}</small>${managed ? '' : `<small>Join type: ${esc(joinTypeLabel(d.trust))}</small>`}</td><td>${managed ? `${esc(d.compliance)} · ${esc(d.agent)}<small>Last sync: ${esc(d.lastSync)}</small>` : `${esc(d.trust || 'Trust type not returned')}<small>Managed: ${esc(unknown(d.managed))} · Compliant: ${esc(unknown(d.compliant))}</small>`}</td></tr>`).join('') + '</tbody>');
   }
   function renderSnapshot() {
     $('#account-clear-local').disabled = !snapshot;

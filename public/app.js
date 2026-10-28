@@ -4,11 +4,16 @@ import { createDeploymentView } from './deployment.js';
 import { partialMessage, bannerFor, APP_LEGEND } from './access-text.js';
 import { pageSlice, pageInfo, pagerHtml, wirePager, DEFAULT_PAGE_SIZE } from './paging.js';
 import { createDefenderEvents } from './defender.js';
+import { createBucket4Views } from './bucket4.js';
+import { createBucket5View, B5_VIEWS } from './bucket5.js';
 import { createLicenseView } from './licenses.js';
 import { createAccountView } from './account.js';
 import { createIntuneView } from './intune.js';
 import './error-lookup.js';
 import { createSignInLookup } from './signins.js';
+import { joinTypeLabel } from './device-links.js';
+import { accountCardText } from './account-state.js';
+import { B3_TABS, b3Panel, b3Url, whatIfForm, whatIfResult, diagnosticsPanel } from './tab-tables.js';
 import { installColumnResize } from './col-resize.js';
 import { ACTIVITY_HEADERS, activityColumns, activityService, activityCategory, activityStatus, activityActor } from './activity-columns.js';
 import { filterOptions, applyFilters, multiSelectHtml, wireMultiSelects, filtersIntoHeaders, installMultiSelectDismiss, remainingBucket, grantedBucket, REMAINING_BUCKETS, GRANTED_BUCKETS } from './multiselect.js';
@@ -84,6 +89,8 @@ const licenseView = createLicenseView({ api, session: () => state.session, esc, 
 const billingView = createBillingView({ api, esc, external, onSources: sourceLinks, openConnection });
 const portalsView = createPortalsView({ esc, external });
 const defenderView = createDefenderView({ esc, external });
+const bucket5 = createBucket5View({ api, esc, external: (u, l) => external(u, l), emptyBox: t => emptyBox(t) });
+const bucket4 = createBucket4Views({ api, esc, fmtTime: t => fmtTime(t), resultBadge: v => resultBadge(v), external, emptyBox: t => emptyBox(t) });
 const defenderEvents = createDefenderEvents({ api, esc, external, entity: () => state.report?.entity || null, session: () => state.session, showEvidence });
 const deploymentView = createDeploymentView({ esc });
 function sessionUI() {
@@ -150,17 +157,27 @@ const otherEvents = () => (state.report?.events || []).filter(e => e.category !=
 const caResult = p => p.result || (p.status === 'Incomplete' ? 'Incomplete' : 'Applies');
 export function isSelf(entityId, viewerId) { return !!entityId && !!viewerId && String(entityId).toLowerCase() === String(viewerId).toLowerCase(); }
 function isSignedInUser() { return isSelf(state.report?.entity?.id, state.session?.viewer?.id); }
+// Access > Admin roles: one line listing PIM for Groups eligibilities (group, member/owner, end date).
+function pimGroupsLine(pg) {
+  if (!pg) return '';
+  const text = !pg.readable ? `Not readable (${pg.reason || 'scope not consented'})`
+    : !pg.rows.length ? 'None'
+    : pg.rows.map(x => `${x.group} (${x.access.toLowerCase()}, ${x.end ? `until ${new Date(x.end).toLocaleDateString()}` : 'permanent'})`).join('; ');
+  return `<p class="pim-groups-line"><strong>PIM group memberships:</strong> ${esc(text)}</p>`;
+}
 function roleRow(p) {
   const t = p.timing || null;
   const type = /eligible/i.test(`${p.status} ${p.assignment}`) ? 'Eligible' : t && !t.permanent ? 'Active' : 'Permanent';
   const m = String(p.detail || '').match(/scope: (\S+)/i);
   const scope = p.scopeName ? p.scopeName : m ? m[1].replace(/[.;,]+$/, '') : String(p.detail || '').startsWith('/') ? String(p.detail).split(/\s/)[0] : p.source === 'azure' ? 'Not returned' : '/ (directory)';
   const g = String(p.assignment || '').match(/(?:through|inherited through) (.+)$/i);
-  const via = g ? `Group: ${g[1].replace(/ group$/i, '')}` : 'Direct';
-  const granted = t?.granted ? fmtTime(t.granted) : 'Not returned';
+  const pg = String(p.assignment || '').match(/^Eligible via PIM group (.+)$/);
+  const via = pg ? `Eligible via PIM group ${pg[1]}` : g ? `Group: ${g[1].replace(/ group$/i, '')}` : 'Direct';
+  const granted = t?.granted && Number.isFinite(Date.parse(t.granted)) ? fmtTime(t.granted) : ''; // startDateTime; blank when not returned
   const remaining = t && Number.isFinite(t.remaining) ? (t.remaining > 0 ? fmtDuration(t.remaining) : 'Expired') : type === 'Permanent' ? 'No end date' : 'Not returned';
   const ms = t && Number.isFinite(t.remaining) ? t.remaining : null;
-  return { p, plane: p.source === 'azure' ? 'Azure' : 'Entra', type, scope, via, granted, remaining, ms, remainingBucket: remainingBucket(ms, ms == null && type === 'Permanent'), grantedBucket: grantedBucket(t?.granted) };
+  const definition = p.builtIn === true ? 'Built-in' : p.builtIn === false ? 'Custom' : p.source === 'azure' ? 'Azure RBAC' : 'Not returned';
+  return { p, plane: p.source === 'azure' ? 'Azure' : 'Entra', type, definition, scope, via, granted, remaining, ms, remainingBucket: remainingBucket(ms, ms == null && type === 'Permanent'), grantedBucket: grantedBucket(t?.granted) };
 }
 const roles = () => (state.report?.policies || []).filter(p => p.kind === 'Role').map(roleRow);
 const devicePolicies = () => (state.report?.policies || []).filter(p => p.kind === 'Device');
@@ -170,7 +187,7 @@ async function loadHosting() {
   try {
     const { groups } = await api('/api/hosting');
     $('#hosting-panel').hidden = !groups.length;
-    $('#hosting-list').innerHTML = groups.map(g => `<article class="coverage-card"><header><h3>${esc(g.group)}</h3></header><p>${esc(g.name)}</p><div class="card-actions">${g.links.map(l => linkBtn(l.url, l.label, l.reason)).join('')}${g.links.filter(l => l.reason).map(l => `<small>${esc(l.reason)}</small>`).join('')}</div></article>`).join('');
+    $('#hosting-list').innerHTML = groups.map(g => `<article class="coverage-card"><header><h3>${esc(g.group)}</h3></header><p>${esc(g.name)}</p>${g.status ? `<p><small>${esc(g.status)}</small></p>` : ''}<div class="card-actions">${g.links.map(l => linkBtn(l.url, l.label, l.reason)).join('')}${g.links.filter(l => l.reason).map(l => `<small>${esc(l.reason)}</small>`).join('')}</div></article>`).join('');
   } catch { $('#hosting-panel').hidden = true; }
 }
 function clearReport() {
@@ -235,6 +252,7 @@ function renderSummary() {
       [['Success', 'succeeded'], ['Blocked', 'blocked'], ['Failed', 'failed']].map(([res, word]) => go(`${n(res)} ${word}`, 'signins', `data-filter="${res}"`, n(res) ? '' : `No ${word} sign-ins in this range`)).join('')),
     card('Active admin roles', active.length, active.length ? soon ? `Soonest ends in ${soon.remaining} (${soon.p.name})` : 'None are time-limited' : `${rs.length - active.length} eligible, none active`, go('Open Admin roles', 'access', 'data-tab="roles"', rs.length ? '' : 'No role assignments returned for this user')),
     card('Devices', dev.length, dev.length ? `${comp} compliant, ${dev.length - comp} not compliant` : sourceOk('intune') ? 'No Intune device for this user' : 'Intune source unavailable or permission missing', go('Open Devices', 'devices', '', dev.length ? '' : 'No Intune device for this user')),
+    accountCard(r.account, card),
     card('Conditional Access', caApply, ca.length ? `Policies applying${caInc ? `, ${caInc} incomplete` : ''}` : 'No policies returned (source unavailable or none apply)', go('Open Conditional Access', 'access', 'data-tab="ca"', ca.length ? '' : 'No Conditional Access results returned')),
   ].join('');
 }
@@ -281,7 +299,8 @@ $('#signin-result-filter').onchange = ev => { state.signinFilter = ev.target.val
 // ---- Access: CA, admin roles, groups (and app records when present) ----
 // Column filters (multi-select). Known values first, then anything present in the data.
 const APP_KINDS = ['Application assignment', 'API permission', 'Delegated permission', 'Credential'];
-const appVia = p => /^Through /.test(p.assignment || '') ? 'Group' : p.kind === 'Application assignment' ? 'Direct' : p.assignment || 'Not returned';
+const appExpires = p => p.kind === 'Credential' ? (p.expires ? `${fmtTime(p.expires)}${Date.parse(p.expires) < Date.now() ? ' (expired)' : ''}` : 'Not returned') : 'No expiry';
+const appVia = p => p.consent ? `${p.consent} consent` : /^Through /.test(p.assignment || '') ? 'Group' : p.kind === 'Application assignment' ? 'Direct' : p.assignment || 'Not returned';
 const KNOWN = {
   'ca.result': ['Applies', 'Incomplete', 'Does not apply'],
   'roles.type': ['Permanent', 'Active', 'Eligible'], 'roles.granted': GRANTED_BUCKETS, 'roles.remaining': REMAINING_BUCKETS, 'roles.source': ['Direct'],
@@ -297,16 +316,19 @@ const countOf = (shown, all) => shown === all ? `${all}` : `${shown} of ${all}`;
 function renderAccess() {
   const r = state.report; if (!r) return;
   const other = r.policies.filter(p => APP_KINDS.includes(p.kind));
+  const isApp = (r.entity?.type || 'user') !== 'user';
   $('#access-tab-apps').hidden = !other.length;
-  if (!state.tab || (state.tab === 'apps' && !other.length)) state.tab = 'ca';
+  $('#access-tab-sso').hidden = !isApp;
+  if (!state.tab || (state.tab === 'apps' && !other.length) || (state.tab === 'sso' && !isApp)) state.tab = 'ca';
   $$('#access-page .tab').forEach(t => { const on = t.dataset.tab === state.tab; t.classList.toggle('active', on); t.setAttribute('aria-selected', on); });
   const body = $('#access-tab-body');
+  if (B3_TABS[state.tab]) { renderB3(body); return; }
   if (state.tab === 'ca') {
     const all = r.policies.filter(p => p.kind === 'Conditional Access');
     const cols = [{ key: 'ca.result', label: 'Result', get: caResult }];
     const ca = filtered(all, cols);
     const note = r.sources.find(s => s.id === 'policies')?.note || '';
-    body.innerHTML = `<div class="panel-heading"><div><h2>Conditional Access <span class="count">${countOf(ca.length, all.length)}</span></h2><p>${esc(note || 'Which policies apply to this identity today.')}</p></div></div>` + (all.length ? filterBar(all, cols) : '') + (ca.length ? `<div class="table-wrap"><table class="event-table" data-table-id="access-ca"><thead><tr><th>Policy</th><th>Result</th><th>Reason</th><th></th></tr></thead><tbody>${ca.map(p => `<tr><td>${esc(p.name)}<small>State: ${esc(p.state || p.status)}</small></td><td>${resultBadge(caResult(p))}</td><td>${esc([p.assignment, p.detail].filter(Boolean).join('. '))}</td><td>${linkBtn(p.link, 'Open policy')}</td></tr>`).join('')}</tbody></table></div>` : emptyBox(all.length ? 'No policies match these filters. Use Select all to show every result.' : sourceOk('policies') ? 'No Conditional Access policy applies to this identity for the evaluated apps.' : 'Conditional Access source unavailable or permission missing (needs Policy.Read.All).'));
+    body.innerHTML = `<div class="panel-heading"><div><h2>Conditional Access <span class="count">${countOf(ca.length, all.length)}</span></h2><p>${esc(note || 'Which policies apply to this identity today.')}</p></div></div>` + (state.session?.mode === 'live' ? `<details class="whatif-box"${state.whatIf?.id === r.entity.id ? ' open' : ''}><summary>What If inputs</summary><p class="account-note">Supply the sign-in conditions e360 cannot know, then run Microsoft What If again. Read-only.</p>${whatIfForm(state.whatIf?.id === r.entity.id ? state.whatIf.input : {}, esc)}${whatIfResult(state.whatIf?.id === r.entity.id ? state.whatIf.st : null, b3Help())}</details>` : '') + (all.length ? filterBar(all, cols) : '') + (ca.length ? `<div class="table-wrap"><table class="event-table" data-table-id="access-ca"><thead><tr><th>Policy</th><th>Result</th><th>Controls</th><th>Reason</th><th></th></tr></thead><tbody>${ca.map(p => `<tr><td>${esc(p.name)}<small>State: ${esc(p.state || p.status)}</small></td><td>${resultBadge(caResult(p))}</td><td>${esc(p.controls || 'None returned')}</td><td>${esc([p.assignment, p.detail].filter(Boolean).join('. '))}</td><td>${linkBtn(p.link, 'Open policy')}</td></tr>`).join('')}</tbody></table></div>` : emptyBox(all.length ? 'No policies match these filters. Use Select all to show every result.' : sourceOk('policies') ? 'No Conditional Access policy applies to this identity for the evaluated apps.' : 'Conditional Access source unavailable or permission missing (needs Policy.Read.All).'));
   } else if (state.tab === 'roles' && isSignedInUser()) {
     // No duplication: the signed-in user's roles live on My access.
     body.innerHTML = `<p class="self-roles-note">Your own admin roles are listed on My access, under Group memberships and Role assignments. <button type="button" class="btn" data-go="my-access">Open My access</button></p>`;
@@ -314,7 +336,7 @@ function renderAccess() {
     const all = roles();
     const cols = [{ key: 'roles.role', label: 'Role', get: x => x.p.name }, { key: 'roles.type', label: 'Type', get: x => x.type }, { key: 'roles.granted', label: 'Granted', get: x => x.grantedBucket, sortValue: x => x.p.timing?.granted ?? null }, { key: 'roles.remaining', label: 'Remaining', get: x => x.remainingBucket, sortValue: x => x.ms }, { key: 'roles.source', label: 'Source', get: x => x.via }];
     const rs = filtered(all, cols);
-    body.innerHTML = `<div class="panel-heading"><div><h2>Admin roles <span class="count">${countOf(rs.length, all.length)}</span></h2><p>Entra directory roles and Azure RBAC together. Remaining time comes from PIM. Granted filters by age of the grant; Remaining by time left.</p></div></div>` + (all.length ? filterBar(all, cols) : '') + (rs.length ? `<div class="table-wrap"><table class="event-table" data-table-id="access-roles"><thead><tr><th>Role</th><th>Scope</th><th>Type</th><th>Granted</th><th>Remaining</th><th>Source</th><th></th></tr></thead><tbody>${rs.map(x => `<tr><td>${esc(x.p.name)}<small>${esc(x.plane)}</small></td><td><code>${esc(x.scope)}</code></td><td>${resultBadge(x.type)}</td><td>${esc(x.granted)}</td><td>${esc(x.remaining)}</td><td>${esc(x.via)}</td><td>${linkBtn(x.p.link, 'Open')}</td></tr>`).join('')}</tbody></table></div>` : emptyBox(all.length ? 'No roles match these filters. Use Select all to show every role.' : sourceOk('roles') || sourceOk('azure') ? 'No admin roles are assigned to this identity, directly or through groups.' : 'Role sources unavailable or permission missing (Entra roles need RoleManagement.Read.Directory; Azure roles need Connect Azure).'));
+    body.innerHTML = `<div class="panel-heading"><div><h2>Admin roles <span class="count">${countOf(rs.length, all.length)}</span></h2><p>Entra directory roles and Azure RBAC together. Remaining time comes from PIM. Granted filters by age of the grant; Remaining by time left.</p></div></div>` + pimGroupsLine(r.pimGroups) + (all.length ? filterBar(all, cols) : '') + (rs.length ? `<div class="table-wrap"><table class="event-table" data-table-id="access-roles"><thead><tr><th>Role</th><th>Scope</th><th>Type</th><th>Granted</th><th>Remaining</th><th>Source</th><th title="Actions the role definition allows (rolePermissions.allowedResourceActions)">Permissions</th><th title="PIM activation rules for eligible Entra roles">Activation</th><th></th></tr></thead><tbody>${rs.map(x => `<tr><td>${esc(x.p.name)}<small>${esc(x.plane)}</small></td><td><code>${esc(x.scope)}</code></td><td>${resultBadge(x.type)}<small>${esc(x.definition)}</small></td><td>${esc(x.granted)}</td><td>${esc(x.remaining)}</td><td>${esc(x.via)}</td><td${x.p.permissions?.length ? ` title="${esc(x.p.permissions.join('\n'))}"` : ''}>${esc(x.p.permissionText || (x.plane === 'Azure' ? 'See Azure portal' : 'Not returned'))}</td><td>${esc(x.p.activation || (x.type === 'Eligible' ? 'Not returned' : ''))}</td><td>${linkBtn(x.p.link, 'Open')}</td></tr>`).join('')}</tbody></table></div>` : emptyBox(all.length ? 'No roles match these filters. Use Select all to show every role.' : sourceOk('roles') || sourceOk('azure') ? 'No admin roles are assigned to this identity, directly or through groups.' : 'Role sources unavailable or permission missing (Entra roles need RoleManagement.Read.Directory; Azure roles need Connect Azure).'));
   } else if (state.tab === 'packages') {
     // Read-only entitlement management view: packages held, resources each grants, and pending requests.
     const ap = r.accessPackages || { packages: [], requests: [] };
@@ -336,13 +358,39 @@ function renderAccess() {
     const kinds = [...new Set(other.flatMap(p => [p.kind, p.status]))].filter(k => APP_LEGEND[k]);
     const legend = `<details class="apps-legend"><summary>What Kind and Status mean</summary><dl>${kinds.map(k => `<dt>${esc(k)}</dt><dd>${esc(APP_LEGEND[k])}</dd>`).join('')}</dl></details>`;
     const date = p => p.date ? fmtTime(p.date) : p.kind === 'Delegated permission' ? 'Not recorded by Microsoft' : 'Not returned';
-    body.innerHTML = `<div class="panel-heading"><div><h2>App permissions <span class="count">${countOf(shown.length, other.length)}</span></h2><p>App assignments, permissions and credentials for this identity. Open goes to the specific assignment or the app's permissions page.</p></div></div>${legend}${filterBar(other, cols)}<div class="table-wrap"><table class="event-table" data-table-id="access-apps"><thead><tr><th>App</th><th>Kind</th><th>Status</th><th>Role</th><th>Assignment</th><th>Date</th><th></th></tr></thead><tbody>${shown.map(p => `<tr><td>${esc(p.name)}<small>${esc(p.detail || '')}</small></td><td>${esc(p.kind)}</td><td>${resultBadge(p.status)}</td><td>${esc(p.role || 'Not returned')}</td><td>${esc(p.assignment || '')}</td><td>${esc(date(p))}</td><td>${linkBtn(p.link, p.linkLabel || 'Open')}</td></tr>`).join('')}</tbody></table></div>`;
+    body.innerHTML = `<div class="panel-heading"><div><h2>App permissions <span class="count">${countOf(shown.length, other.length)}</span></h2><p>App assignments, permissions and credentials for this identity. Open goes to the specific assignment or the app's permissions page.</p></div></div>${legend}${filterBar(other, cols)}<div class="table-wrap"><table class="event-table" data-table-id="access-apps"><thead><tr><th>App</th><th>Kind</th><th>Status</th><th>Role</th><th>Assignment</th><th>Date</th><th>Expires</th><th></th></tr></thead><tbody>${shown.map(p => `<tr><td>${esc(p.name)}<small>${esc(p.detail || '')}</small></td><td>${esc(p.kind)}</td><td>${resultBadge(p.status)}</td><td>${esc(p.role || 'Not returned')}</td><td>${esc(p.assignment || '')}</td><td>${esc(date(p))}</td><td>${esc(appExpires(p))}</td><td>${linkBtn(p.link, p.linkLabel || 'Open')}</td></tr>`).join('')}</tbody></table></div>`;
   }
+  wireWhatIf(body);
   wireMultiSelects(body, state.fx, () => renderAccess());
   body.querySelectorAll('.msel-bar').forEach(bar => filtersIntoHeaders(bar, body.querySelector('table')));
   body.querySelector('[data-msel][open] summary')?.focus();
 }
 $$('#access-page .tab').forEach(t => t.onclick = () => { state.tab = t.dataset.tab; renderAccess(); });
+// ---- Bucket 3: tables loaded when their tab is opened, cached per entity ----
+const b3Help = () => ({ esc, fmtTime, resultBadge, linkBtn, emptyBox, external });
+function renderB3(body) {
+  const key = state.tab, e = state.report.entity, cache = state.b3 && state.b3.id === e.id ? state.b3 : (state.b3 = { id: e.id });
+  if (!cache[key]) {
+    cache[key] = { loading: true };
+    api(b3Url(key, e)).then(d => { cache[key] = { data: d }; }, err => { cache[key] = { error: err.message }; }).finally(() => { if (state.tab === key && state.report?.entity?.id === e.id) renderAccess(); });
+  }
+  body.innerHTML = b3Panel(key, cache[key], b3Help());
+}
+function wireWhatIf(body) {
+  const run = body.querySelector('#whatif-run'); if (!run) return;
+  run.onclick = () => {
+    const input = {}; body.querySelectorAll('[data-whatif]').forEach(x => { if (x.value) input[x.dataset.whatif] = x.value.trim(); });
+    const e = state.report.entity; state.whatIf = { id: e.id, input, st: { loading: true } }; renderAccess();
+    api('/api/ca/whatif', { method: 'POST', body: JSON.stringify({ id: e.id, type: e.type || 'user', input }) }).then(d => { state.whatIf.st = { data: d }; }, err => { state.whatIf.st = { error: err.message }; }).finally(() => { if (state.tab === 'ca') renderAccess(); });
+  };
+}
+let diagState = null;
+function renderDiagnostics() {
+  const root = $('#diag-panel'); if (!root) return;
+  root.hidden = state.session?.mode !== 'live';
+  root.innerHTML = `<div class="panel">${diagnosticsPanel(diagState, b3Help())}</div>`;
+  root.querySelector('#diag-run').onclick = () => { diagState = { loading: true }; renderDiagnostics(); api('/api/tab-table?table=diagnostics').then(d => { diagState = { data: d }; }, err => { diagState = { error: err.message }; }).finally(renderDiagnostics); };
+}
 // ---- Devices: one card each; policy states load inline ----
 function renderDevices() {
   const dev = devicePolicies();
@@ -353,7 +401,7 @@ function renderDevices() {
     const sync = p.evidence?.lastSyncDateTime ? fmtTime(p.evidence.lastSyncDateTime) : (/^Last synchronized:\s*/i.test(p.detail || '') ? String(p.detail).replace(/^Last synchronized:\s*/i, '') : 'Not returned');
     const reason = !p.deviceId ? 'No Intune device record for this device' : intuneRole;
     const states = !st ? '' : st.loading ? '<p class="muted">Loading policy states from Intune</p>' : st.error ? `<p class="error-text">${esc(st.error)}</p>` : st.rows.length ? `${filterBar(st.rows, devCols(i))}<div class="table-wrap"><table class="event-table" data-table-id="device-states"><thead><tr><th>Policy</th><th>Type</th><th>State</th></tr></thead><tbody>${filtered(st.rows, devCols(i)).map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.kind)}</td><td>${resultBadge(x.state)}</td></tr>`).join('')}</tbody></table></div>` : emptyBox('Intune returned no compliance or configuration policy states for this device.');
-    return `<section class="panel device-card"><h3>${esc(p.assignment || p.name)}</h3><dl><dt>Compliance</dt><dd>${resultBadge(p.status)}</dd><dt>Last sync</dt><dd>${esc(sync)}</dd><dt>Policy</dt><dd>${esc(p.name)}</dd></dl><div class="card-actions"><button type="button" class="btn" data-states="${i}" ${reason ? `disabled title="${esc(reason)}"` : ''}>${st && !st.loading && !st.error ? 'Hide policy states' : 'Load policy states'}</button>${linkBtn(p.link, 'Open in Intune')}</div><div class="device-states">${states}</div></section>`;
+    return `<section class="panel device-card"><h3>${esc(p.assignment || p.name)}</h3><dl><dt>Compliance</dt><dd>${resultBadge(p.status)}</dd><dt>Last sync</dt><dd>${esc(sync)}</dd><dt>Join type</dt><dd>${esc(joinTypeLabel(p.trustType))}</dd><dt>Policy</dt><dd>${esc(p.name)}</dd></dl><div class="card-actions"><button type="button" class="btn" data-states="${i}" ${reason ? `disabled title="${esc(reason)}"` : ''}>${st && !st.loading && !st.error ? 'Hide policy states' : 'Load policy states'}</button>${linkBtn(p.link, 'Open in Intune')}</div><div class="device-states">${states}</div></section>`;
   }).join('');
   $$('[data-states]').forEach(b => b.onclick = () => loadDeviceStates(Number(b.dataset.states)));
   $$('#device-cards .device-states').forEach(el => { const bar = el.querySelector('.msel-bar'); if (!bar) return; wireMultiSelects(bar, state.fx, () => renderDevices()); filtersIntoHeaders(bar, el.querySelector('table')); });
@@ -388,6 +436,11 @@ function renderActivityFilters() {
   filtersIntoHeaders(box, $('#event-rows').closest('table'));
   box.hidden = false; // Perspective has no column and stays in the bar
 }
+// Investigate > Summary: account state card (accountEnabled, userType, sync, last session revocation).
+function accountCard(a, card) {
+  const t = accountCardText(a, fmtTime);
+  return card('Account', t.value, t.note, '');
+}
 function resultBadge(result) { return `<span class="result ${esc(String(result).toLowerCase().replace(/[^a-z]/g, ''))}">${esc(result)}</span>`; }
 function renderActivity() {
   const s = state.session;
@@ -421,14 +474,15 @@ function renderCoverage() {
   $('#coverage-list').innerHTML = r.sources.map(s => `<article class="coverage-card"><header><h3>${esc(s.name)}</h3>${resultBadge(s.status)}</header><dl><dt>Scope</dt><dd>${esc(s.scope)}</dd><dt>Window</dt><dd>${esc(s.coverage)}</dd><dt>Activity</dt><dd>${esc(s.count)} observed events</dd><dt>Freshness</dt><dd>${esc(s.freshness)}</dd></dl><p>${esc(s.note)}</p>${linkBtn(s.url, 'Open source portal')}</article>`).join('') + `<article class="coverage-card"><h3>Interpretation and limits</h3>${(r.notes || []).map(n => `<p>${esc(n)}</p>`).join('')}<p>Returned rows are not a guarantee of complete retention, collection, or historical configuration.</p></article>`;
 }
 // ---- Page switching ----
-const TITLES = { summary: ['Summary', 'Counts for the selected user. Each count opens the page that holds the rows.'], signins: ['Sign-ins', 'Select a sign-in to see why it succeeded, failed or was blocked.'], access: ['Access', 'Conditional Access, admin roles and groups for the selected user.'], devices: ['Devices', 'Intune devices for the selected user.'], activity: ['Azure activity', 'Azure control-plane activity, loaded only on demand.'], health: ['Health checks', 'Intune health run and which sources returned data.'], 'my-summary': ['My account', 'Your own account, read with your signed-in permissions.'], 'my-signins': ['My sign-ins', 'Your recent sign-ins and the policies Microsoft evaluated.'], 'my-access': ['My access', 'Licenses, groups, authentication methods and Conditional Access for you.'], 'my-device': ['My device', 'Your devices in Entra and Intune, and this computer.'], licenses: ['Licenses', 'Signed-in account first, authorized tenant inventory next.'], billing: ['Billing', 'Authorized billing evidence across connected contexts and scopes.'], deployment: ['Deployment/Onboarding', 'Every step used to bring each machine into Azure Arc, Intune and Defender.'], portals: ['Azure Portals', 'Every Azure and Microsoft 365 admin portal in one place. Links only; each portal checks your access.'], defender: ['Defender', 'Microsoft Defender workloads. Links only; each portal checks your access.'] };
+const TITLES = { ...B5_VIEWS, emergency: ['Emergency access', 'Break-glass accounts: Conditional Access exclusions, last sign-in, roles and alert rules.'], logs: ['Logs', 'Saved KQL and workbooks for Log Analytics workspaces you can read.'], summary: ['Summary', 'Counts for the selected user. Each count opens the page that holds the rows.'], signins: ['Sign-ins', 'Select a sign-in to see why it succeeded, failed or was blocked.'], access: ['Access', 'Conditional Access, admin roles and groups for the selected user.'], devices: ['Devices', 'Intune devices for the selected user.'], activity: ['Azure activity', 'Azure control-plane activity, loaded only on demand.'], health: ['Health checks', 'Intune health run and which sources returned data.'], 'my-summary': ['My account', 'Your own account, read with your signed-in permissions.'], 'my-signins': ['My sign-ins', 'Your recent sign-ins and the policies Microsoft evaluated.'], 'my-access': ['My access', 'Licenses, groups, authentication methods and Conditional Access for you.'], 'my-device': ['My device', 'Your devices in Entra and Intune, and this computer.'], licenses: ['Licenses', 'Signed-in account first, authorized tenant inventory next.'], billing: ['Billing', 'Authorized billing evidence across connected contexts and scopes.'], deployment: ['Deployment/Onboarding', 'Every step used to bring each machine into Azure Arc, Intune and Defender.'], portals: ['Azure Portals', 'Every Azure and Microsoft 365 admin portal in one place. Links only; each portal checks your access.'], defender: ['Defender', 'Microsoft Defender workloads. Links only; each portal checks your access.'] };
 function applyView() {
   const v = TITLES[state.view] ? state.view : 'summary'; state.view = v;
   const entityPage = ENTITY_VIEWS.includes(v), my = MY_VIEWS.includes(v);
-  const pages = { summary: '#summary-page', signins: '#signins-page', access: '#access-page', devices: '#devices-page', activity: '#activity-page', health: '#health-page', deployment: '#deployment-panel', portals: '#portals-panel', defender: '#defender-panel', billing: '#billing-panel', licenses: '#license-panel' };
+  const pages = { summary: '#summary-page', signins: '#signins-page', access: '#access-page', devices: '#devices-page', activity: '#activity-page', health: '#health-page', deployment: '#deployment-panel', portals: '#portals-panel', defender: '#defender-panel', emergency: '#emergency-panel', logs: '#logs-panel', billing: '#billing-panel', licenses: '#license-panel' };
   const showEntity = entityPage && state.report && !state.loading;
   for (const [key, sel] of Object.entries(pages)) $(sel).hidden = ENTITY_VIEWS.includes(key) ? !(showEntity && key === v) : key !== v;
   $('#intune-panel').hidden = v !== 'health';
+  if (v === 'health') renderDiagnostics();
   $('#account-panel').hidden = !my;
   MY_VIEWS.forEach(id => { $(`#${id}`).hidden = id !== v; });
   const s = state.session;
@@ -444,6 +498,9 @@ function applyView() {
   portalsView.setActive(v === 'portals');
   defenderView.setActive(v === 'defender');
   defenderEvents.setActive(v === 'defender');
+  bucket4.setEmergency(v === 'emergency');
+  bucket4.setLogs(v === 'logs');
+  bucket5.setActive(v);
   // Partial results: only the tab whose data is affected, listing only that tab's sources (Defender shows its own).
   const banner = state.report && !state.loading && (entityPage || v === 'health') ? bannerFor(state.report, v) : '';
   $('#partial-banner').textContent = banner; $('#partial-banner').hidden = !banner;

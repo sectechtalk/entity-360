@@ -36,6 +36,10 @@ export function classifyMemberships(direct = [], transitive = []) {
   rows.sort((a, b) => a.name.localeCompare(b.name));
   return { rows, directoryRoles: roles };
 }
+// Access > Groups and related identities > Kind: governance-relevant traits next to the base group type.
+export function governanceKind(g = {}) {
+  return ['Group', g.isAssignableToRole === true && 'Role-assignable', ((g.groupTypes || []).includes('DynamicMembership') || g.membershipRule) && 'Dynamic', g.onPremisesSyncEnabled === true && 'Synced from on-prem'].filter(Boolean).join(' · ');
+}
 export function typeLabel(r) {
   return [r.kind, r.membershipType !== 'n/a' && r.membershipType, r.roleAssignable && 'Role-assignable'].filter(Boolean).join(' · ');
 }
@@ -50,8 +54,8 @@ const fmtDuration = ms => { const m = Math.round(Math.abs(ms) / 60000), d = Math
 const fmtTime = t => `${new Date(t).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC`;
 export const isRoleRow = r => ROLE_KINDS.includes(r.kind);
 export function roleTiming(r) {
-  if (!isRoleRow(r)) return { granted: '', remaining: '' };
-  const granted = r.granted ? fmtTime(r.granted) : r.membership === 'Permanent' ? 'Not returned' : 'Not returned';
+  if (!isRoleRow(r) && !r.pim) return { granted: '', remaining: '' };
+  const granted = r.granted && Number.isFinite(Date.parse(r.granted)) ? fmtTime(r.granted) : ''; // eligibility/assignment startDateTime; blank when not returned
   const remaining = Number.isFinite(r.remaining) ? (r.remaining > 0 ? fmtDuration(r.remaining) : 'Expired') : r.membership === 'Permanent' ? 'No end date' : 'Not returned';
   return { granted, remaining };
 }

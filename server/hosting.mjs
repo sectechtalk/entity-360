@@ -40,3 +40,18 @@ export function hostingLinks(env = process.env) {
       : [{ label: 'Not configured', reason: `The ${envName} environment sends logs nowhere, so past container logs are not kept. Use Log stream for live output.` }] },
   ];
 }
+
+// Health checks > Entity 360 hosting: ingress restriction, read with the viewer's own ARM token (delegated user_impersonation; needs Reader on the app).
+export function ingressLabel(app) {
+  const ing = app?.properties?.configuration?.ingress;
+  if (!ing) return 'Ingress: not returned';
+  if (ing.external === false) return 'Ingress: internal only';
+  const rules = (ing.ipSecurityRestrictions || []).filter(r => (r.action || 'Allow') === 'Allow');
+  return rules.length ? `Ingress: IP-restricted (${rules.map(r => r.ipAddressRange).join(', ')})` : 'Ingress: open';
+}
+export async function hostingIngress(api, env = process.env) {
+  const v = (k, d) => (env[k] ?? d) || '';
+  const sub = v('E360_HOST_SUBSCRIPTION', '00000000-0000-4000-8000-0000000000a2'), rg = v('E360_HOST_APP_RG', 'rg-e360'), app = v('E360_HOST_CONTAINER_APP', 'app-e360');
+  try { return ingressLabel(await api.request(`/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.App/containerApps/${app}?api-version=2024-03-01`, { origin: 'https://management.azure.com' })); }
+  catch (e) { return [401, 403].includes(e.status) ? 'Ingress: not readable (needs Reader on the Container App)' : 'Ingress: could not be read'; }
+}

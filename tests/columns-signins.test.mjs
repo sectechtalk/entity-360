@@ -10,14 +10,14 @@ const read = p => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const ths = (html, marker) => [...html.slice(html.indexOf(marker)).match(/<thead><tr>(.*?)<\/tr><\/thead>/)[1].matchAll(/<th[^>]*>(.*?)<\/th>/g)].map(m => m[1].replace(/<span[^>]*>.*?<\/span>/g, '').trim());
 
 test('sign-ins table has the Entra Sign-in logs default columns in order', () => {
-  assert.deepEqual(SIGNIN_HEADERS, ['Date', 'Request ID', 'Application', 'Status', 'Sign-in error code', 'IP address', 'Location', 'Conditional Access', 'Agent type', 'Authentication requirement']);
+  assert.deepEqual(SIGNIN_HEADERS, ['Date', 'Request ID', 'Application', 'Status', 'Sign-in error code', 'IP address', 'Location', 'Conditional Access', 'Risk', 'Agent type', 'Authentication requirement', 'Tenant', 'Sign-in type', 'Session']);
   assert.deepEqual(ths(read('public/index.html'), 'class="signin-table"'), SIGNIN_HEADERS);
   assert.deepEqual(signInColumns().map(c => c.label), SIGNIN_HEADERS);
 });
 
 test('signIn resource fields map into the columns', () => {
   const e = normalizeSignIn({ id: 'req-1', createdDateTime: '2026-10-25T10:00:00Z', userDisplayName: 'Aaron Brooks', appDisplayName: 'Azure Portal', status: { errorCode: 50074 }, ipAddress: '203.0.113.5', location: { city: 'Seattle', state: 'Washington', countryOrRegion: 'US' }, conditionalAccessStatus: 'notApplied' }, 'aaron@contoso.com', 'v1.0');
-  assert.deepEqual(signInCells(e), { requestId: 'req-1', user: 'Aaron Brooks', app: 'Azure Portal', status: 'Interrupted', ip: '203.0.113.5', location: 'Seattle, Washington, US', ca: 'Not Applied', code: '50074', agent: '\u2014', authReq: '\u2014' });
+  assert.deepEqual(signInCells(e), { requestId: 'req-1', user: 'Aaron Brooks', app: 'Azure Portal', status: 'Interrupted', ip: '203.0.113.5', location: 'Seattle, Washington, US', ca: 'Not Applied', code: '50074', risk: 'n/a', agent: '\u2014', authReq: '\u2014', tenant: 'n/a', type: '\u2014', session: '\u2014' });
   assert.equal(signInStatus(0), 'Success');
   assert.equal(signInStatus(50126), 'Failure');
   assert.equal(signInStatus(null), 'n/a');

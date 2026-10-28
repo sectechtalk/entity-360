@@ -1,4 +1,4 @@
-import { signInStatus } from '../public/signin-columns.js';
+import { signInStatus, caResultLabel } from '../public/signin-columns.js';
 import { SOURCE, fail, describeError, odata, queryUrl, policyLink } from './model.mjs';
 import { entities, profiles } from './demo.mjs';
 
@@ -21,7 +21,7 @@ export function normalizeSignIn(s, user, version) {
   const policiesReturned = Array.isArray(s.appliedConditionalAccessPolicies);
   const nonInteractive = s.isInteractive === false || s.signInEventTypes?.includes('nonInteractiveUser');
   const code = typeof s.status?.errorCode === 'number' ? s.status.errorCode : null;
-  const policies = (s.appliedConditionalAccessPolicies || []).map(p => ({ id: p.id, name: p.displayName || p.id || 'Unnamed policy', status: p.result || 'Not returned', detail: (p.enforcedGrantControls || []).join(', '), link: p.id ? policyLink(p.id) : SOURCE.policies.url }));
+  const policies = (s.appliedConditionalAccessPolicies || []).map(p => ({ id: p.id, name: p.displayName || p.id || 'Unnamed policy', status: p.result || 'Not returned', label: caResultLabel(p), detail: (p.enforcedGrantControls || []).join(', '), link: p.id ? policyLink(p.id) : SOURCE.policies.url }));
   return {
     id: s.id || null, user, time: new Date(s.createdDateTime).toISOString(), app: s.appDisplayName || 'Not returned', resource: s.resourceDisplayName || 'Not returned', appId: s.appId || '', resourceId: s.resourceId || s.resourceServicePrincipalId || '',
     kind: nonInteractive ? 'Noninteractive' : s.isInteractive === true || s.signInEventTypes?.includes('interactiveUser') ? 'Interactive' : 'Not returned',
@@ -29,7 +29,9 @@ export function normalizeSignIn(s, user, version) {
     code, result: code === 0 ? 'Success' : code === null ? 'Not returned' : 'Not completed', reason: s.status?.failureReason || '', conditionalAccess: s.conditionalAccessStatus || 'Not returned', policies, policiesReturned,
     methods: (s.authenticationDetails || []).map(a => ({ method: a.authenticationMethod || 'Not returned', detail: a.authenticationMethodDetail || '', succeeded: a.succeeded ?? null, result: a.authenticationStepResultDetail || '', time: a.authenticationStepDateTime || '' })),
     sessions: (s.sessionLifetimePolicies || []).map(p => ({ requirement: p.expirationRequirement || 'Not returned', detail: p.detail || '' })),
-    version, ip: s.ipAddress || '', userDisplayName: s.userDisplayName || '', status: signInStatus(code), location: [s.location?.city, s.location?.state, s.location?.countryOrRegion].filter(Boolean).join(', '), correlationId: s.correlationId || '', agentType: s.agent?.agentType || '', authRequirement: s.authenticationRequirement || '', link: SOURCE.signin.url, evidence: s,
+    // Bucket 2: cross-tenant (v1.0), sign-in event types and token protection / Global Secure Access source (beta only).
+    tenant: { access: s.crossTenantAccessType || '', home: s.homeTenantId || '', resource: s.resourceTenantId || '' }, eventTypes: Array.isArray(s.signInEventTypes) ? s.signInEventTypes : [], session: { binding: s.tokenProtectionStatusDetails?.signInSessionStatus || '', gsaIp: s.globalSecureAccessIpAddress || '' },
+    version, ip: s.ipAddress || '', userDisplayName: s.userDisplayName || '', status: signInStatus(code), location: [s.location?.city, s.location?.state, s.location?.countryOrRegion].filter(Boolean).join(', '), correlationId: s.correlationId || '', risk: { level: s.riskLevelDuringSignIn || '', state: s.riskState || '' }, agentType: s.agent?.agentType || '', authRequirement: s.authenticationRequirement || '', link: SOURCE.signin.url, evidence: s,
   };
 }
 

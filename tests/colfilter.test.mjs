@@ -21,5 +21,5 @@ test('all four Investigate tables move filters into headers', () => {
   const a = read('public/app.js'), si = read('public/signins.js');
   assert.ok((a.match(/filtersIntoHeaders\(/g) || []).length >= 3); assert.match(si, /filtersIntoHeaders\(box/);
   assert.match(a, /devCols\(i\)/); assert.match(a, /roles\.role/); assert.match(a, /apps\.role/);
-  assert.match(si, /colspan="10"/); assert.doesNotMatch(read('public/index.html'), /<th scope="col">User<\/th>/);
+  assert.match(si, /colspan="14"/); assert.doesNotMatch(read('public/index.html'), /<th scope="col">User<\/th>/);
 });

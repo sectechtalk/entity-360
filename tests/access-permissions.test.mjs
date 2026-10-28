@@ -34,11 +34,11 @@ test('directory role scopes resolve administrative unit names, and a denied look
   const ok = { async request(p) { if (p.includes('administrativeUnits')) return { displayName: 'Seattle' }; return { displayName: 'App X', '@odata.type': '#microsoft.graph.application' }; } };
   const pols = [{ evidence: { directoryScopeId: '/' } }, { evidence: { directoryScopeId: au } }, { evidence: { directoryScopeId: '/' + R } }];
   await resolveScopes(ok, pols, { unavailable: [] });
-  assert.deepEqual(pols.map(p => p.scopeName), ['Directory (tenant-wide)', 'Administrative unit: Seattle', 'App registration: App X']);
+  assert.deepEqual(pols.map(p => p.scopeName), ['Directory (tenant-wide)', 'Admin unit: Seattle', 'App: App X']);
   assert.match(pols[1].scopeLink, /AdministrativeUnitMenuBlade/);
   const report = { unavailable: [] }, denied = [{ evidence: { directoryScopeId: au } }];
   await resolveScopes({ async request() { throw err(403); } }, denied, report);
-  assert.equal(denied[0].scopeName, `Administrative unit ${A}`);
+  assert.equal(denied[0].scopeName, `Admin unit ${A}`);
   assert.match(report.unavailable[0].reason, /AdministrativeUnit.Read.All/);
 });
 

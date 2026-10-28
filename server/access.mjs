@@ -15,9 +15,10 @@ export function caApps(setting = process.env.E360_CA_EVAL_APPS) {
 
 // Sign-in inputs e360 does not know, so it never sends them to What If. A policy that depends on one can be missed.
 const UNKNOWN_INPUTS = [['platforms', 'device platform'], ['locations', 'location'], ['devices', 'device filter'], ['clientAppTypes', 'client app'], ['signInRiskLevels', 'sign-in risk'], ['userRiskLevels', 'user risk'], ['insiderRiskLevels', 'insider risk'], ['authenticationFlows', 'authentication flow']];
-export function unknownInputs(policy) {
+export function unknownInputs(policy, supplied = []) {
   const c = policy?.conditions || {};
   return UNKNOWN_INPUTS.filter(([k]) => {
+    if (supplied.includes(k)) return false;
     const v = c[k];
     if (v == null || v === '') return false;
     if (Array.isArray(v)) return v.length > 0 && !(k === 'clientAppTypes' && v.length === 1 && v[0] === 'all');
@@ -25,18 +26,49 @@ export function unknownInputs(policy) {
   }).map(([, label]) => label);
 }
 
+// Grant and session controls of a policy in plain words (from the What If response or the policy list).
+const GRANT = { mfa: 'Require MFA', compliantDevice: 'Compliant device', domainJoinedDevice: 'Hybrid joined device', approvedApplication: 'Approved client app', compliantApplication: 'App protection policy', passwordChange: 'Password change', block: 'Block', riskRemediation: 'Risk remediation' };
+export function caControls(policy) {
+  const g = policy?.grantControls || {}, s = policy?.sessionControls || {}, out = [];
+  const grants = (g.builtInControls || []).map(c => GRANT[c] || c);
+  if (g.authenticationStrength) grants.push(`Auth strength: ${g.authenticationStrength.displayName || g.authenticationStrength.id || 'set'}`);
+  if ((g.termsOfUse || []).length) grants.push('Terms of use');
+  if (grants.length) out.push(grants.join(String(g.operator).toUpperCase() === 'AND' ? ' and ' : ' or '));
+  const f = s.signInFrequency;
+  if (f?.isEnabled) out.push(f.frequencyInterval === 'everyTime' ? 'Sign-in every time' : `Sign-in every ${f.value} ${f.type || ''}`.trim());
+  if (s.persistentBrowser?.isEnabled) out.push(`Persistent browser: ${s.persistentBrowser.mode}`);
+  if (s.cloudAppSecurity?.isEnabled) out.push('App control (Defender for Cloud Apps)');
+  if (s.applicationEnforcedRestrictions?.isEnabled) out.push('App enforced restrictions');
+  if (s.continuousAccessEvaluation?.mode) out.push(`CAE: ${s.continuousAccessEvaluation.mode}`);
+  if (s.disableResilienceDefaults) out.push('Resilience defaults off');
+  if (s.secureSignInSession?.isEnabled) out.push('Token protection');
+  return out.join('; ') || 'None returned';
+}
+
 // Microsoft evaluates the policies (POST /v1.0/identity/conditionalAccess/evaluate, delegated, read only).
 // The optional policy list is used only for names, links and to mark policies whose inputs are unknown as Incomplete.
-export async function evaluateConditionalAccess(api, { id, type = 'user', apps = caApps(), policies = null } = {}) {
+// What If inputs the user can supply (bucket 3). Only known values pass; anything else is dropped.
+const WHATIF = { devicePlatform: ['android', 'iOS', 'windows', 'windowsPhone', 'macOS', 'linux'], clientAppType: ['browser', 'mobileAppsAndDesktopClients', 'exchangeActiveSync', 'easSupported', 'other'], signInRiskLevel: ['low', 'medium', 'high', 'none'], userRiskLevel: ['low', 'medium', 'high', 'none'] };
+const SUPPLIES = { devicePlatform: 'platforms', clientAppType: 'clientAppTypes', signInRiskLevel: 'signInRiskLevels', userRiskLevel: 'userRiskLevels', country: 'locations', ipAddress: 'locations' };
+export function whatIfConditions(input = {}) {
+  const out = {};
+  for (const [k, allowed] of Object.entries(WHATIF)) if (allowed.includes(input?.[k])) out[k] = input[k];
+  if (/^[A-Z]{2}$/.test(String(input?.country || ''))) out.country = input.country;
+  if (/^[0-9a-fA-F:.]{3,45}$/.test(String(input?.ipAddress || ''))) out.ipAddress = input.ipAddress;
+  return out;
+}
+export const suppliedInputs = conditions => [...new Set(Object.keys(conditions || {}).map(k => SUPPLIES[k]).filter(Boolean))];
+export async function evaluateConditionalAccess(api, { id, type = 'user', apps = caApps(), policies = null, conditions = {} } = {}) {
+  const supplied = suppliedInputs(conditions);
   if (!GUID.test(String(id))) throw fail('Invalid entity identifier.');
   const signInIdentity = type === 'user'
     ? { '@odata.type': '#microsoft.graph.userSignIn', userId: id }
     : { '@odata.type': '#microsoft.graph.servicePrincipalSignIn', servicePrincipalId: id };
   const applied = new Map();
   for (const app of apps) {
-    const data = await api.request('/v1.0/identity/conditionalAccess/evaluate', { method: 'POST', body: { signInIdentity, signInContext: { '@odata.type': '#microsoft.graph.applicationContext', includeApplications: [app.id] }, signInConditions: {}, appliedPoliciesOnly: true } });
+    const data = await api.request('/v1.0/identity/conditionalAccess/evaluate', { method: 'POST', body: { signInIdentity, signInContext: { '@odata.type': '#microsoft.graph.applicationContext', includeApplications: [app.id] }, signInConditions: conditions, appliedPoliciesOnly: true } });
     for (const p of data.value || []) {
-      const e = applied.get(p.id) || { id: p.id, name: p.displayName || p.id, state: p.state, apps: [], grant: p.grantControls?.builtInControls || [], session: p.sessionControls || null, missing: unknownInputs(p), result: 'Applies', evidence: p };
+      const e = applied.get(p.id) || { id: p.id, name: p.displayName || p.id, state: p.state, apps: [], grant: p.grantControls?.builtInControls || [], session: p.sessionControls || null, missing: unknownInputs(p, supplied), result: 'Applies', evidence: p };
       e.apps.push(app.name);
       applied.set(p.id, e);
     }
@@ -44,7 +76,7 @@ export async function evaluateConditionalAccess(api, { id, type = 'user', apps =
   const rows = [...applied.values()];
   for (const p of policies || []) {
     if (!p || p.state === 'disabled' || applied.has(p.id)) continue;
-    const missing = unknownInputs(p);
+    const missing = unknownInputs(p, supplied);
     if (missing.length) rows.push({ id: p.id, name: p.displayName || p.id, state: p.state, apps: [], grant: p.grantControls?.builtInControls || [], session: p.sessionControls || null, missing, result: 'Incomplete', evidence: p });
   }
   return { rows, apps };
@@ -82,12 +114,14 @@ export function fmtDuration(ms) {
   const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
   return [d && `${d}d`, h && `${h}h`, (mm || (!d && !h)) && `${mm}m`].filter(Boolean).join(' ');
 }
+// granted = the schedule's startDateTime (ISO, or null when not returned); duration = end - start, used in the text only.
 export function pimTiming(start, end, now = Date.now()) {
-  if (!end) return { permanent: true, text: 'Permanent' };
-  const s = Date.parse(start), e = Date.parse(end);
-  if (!Number.isFinite(e)) return { permanent: false, text: 'End time not returned' };
-  const granted = Number.isFinite(s) ? e - s : null, remaining = e - now;
-  return { permanent: false, granted, remaining, text: `Granted ${granted == null ? 'unknown' : fmtDuration(granted)}; ${remaining > 0 ? `${fmtDuration(remaining)} remaining` : 'expired'}` };
+  const s = Date.parse(start), granted = Number.isFinite(s) ? new Date(s).toISOString() : null;
+  if (!end) return { permanent: true, granted, text: 'Permanent' };
+  const e = Date.parse(end);
+  if (!Number.isFinite(e)) return { permanent: false, granted, text: 'End time not returned' };
+  const duration = Number.isFinite(s) ? e - s : null, remaining = e - now;
+  return { permanent: false, granted, duration, remaining, text: `Granted ${duration == null ? 'unknown' : fmtDuration(duration)}; ${remaining > 0 ? `${fmtDuration(remaining)} remaining` : 'expired'}` };
 }
 
 // Per-device Intune policy states, loaded only when a device is opened.

@@ -1,4 +1,5 @@
 import { GUID, fail } from './model.mjs';
+import { licensePaths } from './bucket2.mjs';
 export async function personalAccountReport(api) {
   const me = await api.request('/v1.0/me?$select=id,displayName,userPrincipalName,mail');
   if (typeof me.id !== 'string' || !me.id || me.id.length > 200) throw fail('Microsoft did not return a personal identity.', 502);
@@ -10,12 +11,14 @@ export async function licenseReport(api, { tenant, personal = false }) {
     return { ...profile, levels: { account: { status: 'notQueried', kind: 'consumerSubscriptions', explanation: 'Personal/Family subscription details are not queried through this dashboard. Open Microsoft Services & subscriptions with this personal account.', portal: 'https://account.microsoft.com/services' }, parent: { status: 'notApplicable', explanation: 'There is no organizational tenant inventory above a personal subscription. Family sharing is managed in the personal subscription portal.' } } };
   }
   if (!GUID.test(tenant)) throw fail('Invalid tenant context.');
-  const me = await api.request('/v1.0/me?$select=id,displayName,userPrincipalName,mail,userType');
+  const me = await api.request('/v1.0/me?$select=id,displayName,userPrincipalName,mail,userType,licenseAssignmentStates');
   if (!GUID.test(me.id)) throw fail('Invalid signed-in directory identity.', 502);
   const report = { mode: 'live', identity: { id: me.id, name: me.displayName, upn: me.userPrincipalName, userType: me.userType, tenant }, sources: [{ id: 'license-identity', name: 'Signed-in directory identity', url: 'https://entra.microsoft.com/' }], levels: {}, partial: false, updatedAt: new Date().toISOString() };
   try {
     const r = await api.pages('/v1.0/me/licenseDetails');
-    report.levels.account = { status: 'queried', kind: 'tenantAssignments', rows: r.rows.map(l => ({ skuId: l.skuId, sku: l.skuPartNumber, plans: (l.servicePlans || []).map(p => ({ name: p.servicePlanName, status: p.provisioningStatus, appliesTo: p.appliesTo })) })), partial: r.truncated };
+    // Assignment path per SKU (Direct or group) and any group-licensing error; group names via GroupMember.Read.All, else the id.
+    const paths = await licensePaths(me.licenseAssignmentStates, async gid => { try { return (await api.request(`/v1.0/groups/${gid}?$select=displayName`)).displayName || gid; } catch { return gid; } });
+    report.levels.account = { status: 'queried', kind: 'tenantAssignments', rows: r.rows.map(l => ({ skuId: l.skuId, sku: l.skuPartNumber, paths: paths.get(l.skuId) || [], plans: (l.servicePlans || []).map(p => ({ name: p.servicePlanName, status: p.provisioningStatus, appliesTo: p.appliesTo })) })), partial: r.truncated };
     report.sources.push({ id: 'account-licenses', name: 'My license assignments', url: 'https://admin.microsoft.com/' });
     report.partial ||= r.truncated;
   } catch { report.levels.account = { status: 'unavailable', explanation: 'Account license evidence was not available under this sign-in; this is not proof of no licenses.' }; report.partial = true; }

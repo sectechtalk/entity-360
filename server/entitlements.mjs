@@ -5,10 +5,20 @@ export const ELM_URL = 'https://entra.microsoft.com/#view/Microsoft_AAD_ERM/Dash
 const EM = '/v1.0/identityGovernance/entitlementManagement';
 export const MAX_PACKAGES = 25;
 const PENDING = new Set(['pendingApproval', 'pending', 'accepted', 'scheduled', 'delivering', 'partiallyDelivered']);
-export function packageRow(a, pkg) {
+// Access > Access packages > Policy: name the connected organizations a policy lets external users request from.
+export function policyLabel(p, orgNames = new Map()) {
+  if (!p) return 'Not returned';
+  const name = p.displayName || 'Not returned', scope = p.allowedTargetScope || '';
+  const orgs = (p.specificAllowedTargets || []).filter(t => /connectedOrganization/i.test(String(t['@odata.type'] || ''))).map(t => orgNames.get(t.connectedOrganizationId) || t.description || t.connectedOrganizationId || 'connected organization');
+  if (orgs.length) return `${name} · For connected org: ${orgs.join(', ')}`;
+  if (scope === 'allConfiguredConnectedOrganizationUsers') return `${name} · For connected org: all configured`;
+  if (scope === 'allExternalUsers') return `${name} · For external users: any organization`;
+  return name;
+}
+export function packageRow(a, pkg, orgNames) {
   return {
     id: a.id, packageId: a.accessPackage?.id || pkg?.id, name: pkg?.displayName || a.accessPackage?.displayName || a.accessPackage?.id || 'Unknown package',
-    catalog: pkg?.catalog?.displayName || 'Not returned', policy: a.assignmentPolicy?.displayName || 'Not returned',
+    catalog: pkg?.catalog?.displayName || 'Not returned', policy: policyLabel(a.assignmentPolicy, orgNames),
     assigned: a.schedule?.startDateTime || null, expires: a.schedule?.expiration?.endDateTime || a.expiredDateTime || null,
     state: a.state || 'unknown', status: a.status || '',
     resources: (pkg?.resourceRoleScopes || []).map(s => ({ name: s.role?.resource?.displayName || s.scope?.displayName || s.role?.originId || 'Resource', role: s.role?.displayName || 'Not returned', type: s.role?.originSystem || s.scope?.originSystem || '' })),
@@ -23,10 +33,13 @@ export async function accessPackages(api, userId) {
   const ids = [...new Set(live.map(a => a.accessPackage?.id).filter(Boolean))];
   const pkgs = new Map();
   await Promise.all(ids.slice(0, MAX_PACKAGES).map(id => api.request(`${EM}/accessPackages/${id}?$expand=catalog,resourceRoleScopes($expand=role($expand=resource),scope)`).then(p => pkgs.set(id, p), () => null)));
+  const orgIds = [...new Set(live.flatMap(a => (a.assignmentPolicy?.specificAllowedTargets || []).map(t => t.connectedOrganizationId)).filter(Boolean))];
+  const orgNames = new Map();
+  await Promise.all(orgIds.slice(0, MAX_PACKAGES).map(id => api.request(`${EM}/connectedOrganizations/${id}?$select=id,displayName`).then(o => orgNames.set(id, o.displayName), () => null)));
   let requests = [], requestsNote = null;
   try {
     const q = await api.pages(queryUrl(`${EM}/assignmentRequests`, { '$expand': 'accessPackage,target' }));
     requests = q.rows.filter(r => r.target?.objectId === userId && PENDING.has(r.state)).map(requestRow);
   } catch (e) { requestsNote = e; }
-  return { rows: live.map(a => packageRow(a, pkgs.get(a.accessPackage?.id))), requests, requestsNote, truncated: assigned.truncated || ids.length > MAX_PACKAGES, limit: ids.length > MAX_PACKAGES ? `resources read for the first ${MAX_PACKAGES} packages` : undefined };
+  return { rows: live.map(a => packageRow(a, pkgs.get(a.accessPackage?.id), orgNames)), requests, requestsNote, truncated: assigned.truncated || ids.length > MAX_PACKAGES, limit: ids.length > MAX_PACKAGES ? `resources read for the first ${MAX_PACKAGES} packages` : undefined };
 }
