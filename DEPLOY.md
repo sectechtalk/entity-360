@@ -45,15 +45,18 @@ The image contains only `server/`, `public/` and production dependencies (`.env`
 Registry access: either make the package **public** on GitHub (Packages > entity-360 > Package settings > Change visibility; the code holds no secrets), or keep it private and pass a read-only PAT (`read:packages`) with `-GhcrUser`/`-GhcrToken`; the script stores it as a Container App secret and never prints it.
 
 ## 2. Deploy
+Deploys always pin an immutable dated tag (`yyyyMMdd-HHmm`, or the legacy `yyyyMMddHHmm`), never `:latest`. `:latest` is mutable, so Container Apps sees an unchanged image string, creates no new revision, and rollback is ambiguous. The script refuses `:latest`, an untagged image and any non-dated tag.
 ```powershell
 cd C:\path\to\scripts
-.\Deploy-E360ContainerApp.ps1                     # prereq check, then dry run: prints every az command, changes nothing
-.\Deploy-E360ContainerApp.ps1 -Apply              # public image
+.\Deploy-E360ContainerApp.ps1                     # prereq check, then dry run: resolves and prints the newest dated tag, changes nothing
+.\Deploy-E360ContainerApp.ps1 -Apply              # deploy the newest dated tag in GHCR, then verify
+.\Deploy-E360ContainerApp.ps1 -Apply -Image ghcr.io/your-org/entity-360:<yyyyMMdd-HHmm>   # a specific tag
 # private image:  .\Deploy-E360ContainerApp.ps1 -Apply -GhcrUser sectechtalk -GhcrToken (Read-Host -AsSecureString)
 # lock to your IP: add -AllowedIp 203.0.113.10/32
 ```
-Re-running with `-Apply` after a new push updates the image only.
+Before updating, the script checks that the tag exists in GHCR and is pullable anonymously, and records its digest. If the app already runs that exact image it changes nothing and still runs the checks. On an existing app only the image is updated; use `-Reprovision` to re-run the provisioning steps.
 
+After `-Apply` it verifies and prints a pass/fail table: a new revision was created (or the image was already current), the revision is Healthy with 100% traffic, and `/auth/login` returns 302 to `login.microsoftonline.com`. It exits with code 1 on any FAIL and prints the rollback command. Every changed deploy is appended to `C:\path\to\scripts\logs\e360-deploy-history.json` (outside any repo).
 ## 3. Verify
 - `az containerapp show -g rg-e360 -n app-e360 --query properties.configuration.ingress.fqdn -o tsv`
 - Open `https://<fqdn>` (first request after idle takes several seconds: cold start from zero).
@@ -72,7 +75,7 @@ Consumption plan free grant per subscription per month: 180,000 vCPU-seconds, 36
 Add a CNAME `e360.contoso.com` -> `<fqdn>` and TXT `asuid.e360` (value from `az containerapp show ... --query properties.customDomainVerificationId`), then `az containerapp hostname add` and `az containerapp hostname bind --validation-method CNAME` (free managed certificate). Then set `PUBLIC_BASE_URL=https://e360.contoso.com` and add that callback to the app registration.
 
 ## Rollback
-- Previous image: `az containerapp update -g rg-e360 -n app-e360 --image ghcr.io/your-org/entity-360:<older tag>`
+- Previous image: `.\Deploy-E360ContainerApp.ps1 -Rollback` (dry run), then `-Rollback -Apply`. It redeploys the previous image recorded by the last deploy and runs the same verification. Or by hand: `az containerapp update -n app-e360 -g rg-e360 --image ghcr.io/your-org/entity-360:<older dated tag>`
 - Remove everything: `.\Deploy-E360ContainerApp.ps1 -Remove` (dry run) then `-Remove -Apply` (removes the redirect URI, the Key Vault permission, and `rg-e360`; the vault and app registration are kept).
 - Code changes for hosting are backed up in `.backups\*.pre-aca-20261023`.
 

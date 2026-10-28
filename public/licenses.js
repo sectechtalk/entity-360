@@ -10,7 +10,8 @@ export function createLicenseView({ api, session, esc, external, onSources, open
     for (const pl of l.plans || []) { const k = pl.status || 'Not returned'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(pl); }
     const enabled = (l.plans || []).filter(pl => /^(enabled|success)$/i.test(pl.status || '')).length;
     const body = groups.size ? [...groups].map(([k, rows]) => fold(esc(k), `${rows.length} plan${rows.length === 1 ? '' : 's'}`, planTable(rows, cols), 'fold-sub')).join('') : '<p class="inline-empty">No service plans returned for this product.</p>';
-    return fold(esc(l.sku), `${(l.plans || []).length} service plan${(l.plans || []).length === 1 ? '' : 's'} · ${enabled} enabled`, body, 'fold-sku');
+    const path = (l.paths || []).length ? `<p class="license-path">Assigned: ${(l.paths || []).map(x => `${esc(x.via)}${x.state ? ` (${esc(x.state)})` : ''}${x.error ? ` <span class="result failed">Error: ${esc(x.error)}</span>` : ''}`).join('; ')}</p>` : '';
+    return fold(esc(l.sku) + ((l.paths || []).some(x => x.error) ? ' · assignment error' : ''), `${(l.paths || []).map(x => x.via).join(', ') || 'Assignment path not returned'} · ${(l.plans || []).length} service plan${(l.plans || []).length === 1 ? '' : 's'} · ${enabled} enabled`, path + body, 'fold-sku');
   };
 function render() {
     $('#license-export').disabled = !report;

@@ -1,5 +1,6 @@
+import { governanceKind } from '../public/group-types.js';
 import { SOURCE, GUID, fail, describeError, odata, queryUrl, entityLink, policyLink, finishReport } from './model.mjs';
-import { evaluateConditionalAccess, caApps, resourceGraph, roleAssignmentQuery, SUBSCRIPTIONS_QUERY, pimTiming } from './access.mjs';
+import { caControls, evaluateConditionalAccess, caApps, resourceGraph, roleAssignmentQuery, SUBSCRIPTIONS_QUERY, pimTiming } from './access.mjs';
 
 const GRAPH = 'https://graph.microsoft.com';
 const ARM = 'https://management.azure.com';
@@ -7,6 +8,7 @@ const LOGS = 'https://api.loganalytics.azure.com';
 const REQUEST_ORIGINS = new Set([GRAPH, ARM, LOGS]);
 import { claimsChallenge } from './authflow.mjs';
 import { accessPackages } from './entitlements.mjs';
+import { ACCOUNT_SELECT, accountState, rolePermissions, permissionSummary, activationRules } from './bucket2.mjs';
 // Graph wraps some errors (PIM UnknownError) as JSON inside error.message; surface the inner code and text.
 const innerError = err => { try { const j = JSON.parse(err?.message); return j?.error || j; } catch { return null; } };
 export const innerCode = err => { const i = innerError(err); return i?.code && err?.code === 'UnknownError' ? `${err.code}: ${i.code}` : err?.code; };
@@ -95,20 +97,43 @@ export async function resolveScopes(api, policies, report) {
     let p;
     const au = scope.match(/^\/administrativeUnits\/([0-9a-f-]{36})$/i), obj = scope.match(/^\/([0-9a-f-]{36})$/i);
     if (!scope || scope === '/') p = Promise.resolve({ name: 'Directory (tenant-wide)' });
-    else if (au) p = api.request(`/v1.0/directory/administrativeUnits/${au[1]}?$select=displayName`).then(x => ({ name: `Administrative unit: ${x.displayName}`, link: `https://entra.microsoft.com/#view/Microsoft_AAD_IAM/AdministrativeUnitMenuBlade/~/Overview/objectId/${au[1]}` }), e => ({ name: `Administrative unit ${au[1]}`, note: e.status === 403 ? 'name needs AdministrativeUnit.Read.All' : null }));
-    else if (obj) p = api.request(`/v1.0/directoryObjects/${obj[1]}?$select=id,displayName`).then(x => ({ name: `${String(x['@odata.type'] || '').includes('application') ? 'App registration' : 'Object'}: ${x.displayName}` }), () => ({ name: `Object ${obj[1]}` }));
+    else if (au) p = api.request(`/v1.0/directory/administrativeUnits/${au[1]}?$select=displayName`).then(x => ({ name: `Admin unit: ${x.displayName}`, link: `https://entra.microsoft.com/#view/Microsoft_AAD_IAM/AdministrativeUnitMenuBlade/~/Overview/objectId/${au[1]}` }), e => ({ name: `Admin unit ${au[1]}`, note: e.status === 403 ? 'name needs AdministrativeUnit.Read.All' : null }));
+    else if (obj) p = api.request(`/v1.0/directoryObjects/${obj[1]}?$select=id,displayName`).then(x => ({ name: `${/application|servicePrincipal/i.test(String(x['@odata.type'] || '')) ? 'App' : 'Object'}: ${x.displayName}`, app: /application|servicePrincipal/i.test(String(x['@odata.type'] || '')) }), () => ({ name: `Object ${obj[1]}` }));
     else p = Promise.resolve({ name: scope });
     names.set(scope, p); return p;
   };
   for (const pol of policies) {
     const scope = pol.evidence?.directoryScopeId || '/';
     const r = await lookup(scope);
-    pol.scopeName = r.name; if (r.link) pol.scopeLink = r.link;
+    pol.scopeName = r.name; if (r.link) pol.scopeLink = r.link; if (r.app) pol.appScoped = true;
     if (r.note && report && !report.unavailable.some(u => u.reason === r.note)) report.unavailable.push({ source: 'Entra roles & PIM', reason: r.note });
   }
 }
 // PIM schedule instances can fail with HTTP 400 (Graph UnknownError) for some principals; the plain assignment
 // or schedule list needs the same RoleManagement.Read.Directory scope, so fall back to it instead of losing the roles.
+// PIM for Groups: roles a user can reach by activating eligible group membership (delegated PrivilegedEligibilitySchedule.Read.AzureADGroup).
+export const PIM_GROUP_SCOPE = 'PrivilegedEligibilitySchedule.Read.AzureADGroup';
+export async function pimGroupRoles(api, userId, report) {
+  let elig;
+  try { elig = await api.pages(queryUrl('/v1.0/identityGovernance/privilegedAccess/group/eligibilityScheduleInstances', { '$filter': `principalId eq '${userId}'`, '$expand': 'group' })); }
+  catch (e) {
+    const reason = [401, 403].includes(e.status) ? `scope not consented: ${PIM_GROUP_SCOPE}` : describeError(e);
+    if (!report.unavailable.some(u => u.source === 'PIM for Groups')) report.unavailable.push({ source: 'PIM for Groups', reason });
+    report.pimGroups = { readable: false, reason, rows: [] };
+    return [];
+  }
+  // Every PIM for Groups eligibility, whether or not the group holds a role.
+  report.pimGroups = { readable: true, rows: elig.rows.map(g => ({ id: g.id, groupId: g.groupId, group: g.group?.displayName || g.groupId, access: g.accessId === 'owner' ? 'Owner' : 'Member', end: g.endDateTime || null })).sort((a, b) => a.group.localeCompare(b.group) || a.access.localeCompare(b.access)) };
+  const out = [], seen = new Set();
+  for (const g of elig.rows) {
+    if (!g.groupId || seen.has(g.groupId)) continue; seen.add(g.groupId);
+    const name = g.group?.displayName || g.groupId;
+    let roles;
+    try { roles = await api.pages(queryUrl('/v1.0/roleManagement/directory/roleAssignments', { '$filter': `principalId eq '${g.groupId}'`, '$expand': 'roleDefinition' })); } catch { continue; }
+    for (const r of roles.rows) out.push({ id: `pimgroup-${g.id}-${r.id}`, name: r.roleDefinition?.displayName || r.roleDefinitionId, kind: 'Role', builtIn: r.roleDefinition?.isBuiltIn ?? null, status: 'Eligible', assignment: `Eligible via PIM group ${name}`, detail: `Scope: ${r.directoryScopeId || '/'}. Activate ${g.accessId || 'member'} of ${name} in PIM for Groups. ${g.endDateTime ? `Eligibility ends ${g.endDateTime}` : 'Permanent eligibility'}.`, source: 'roles', link: 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadgroup', linkLabel: 'Open PIM', evidence: r });
+  }
+  return out;
+}
 export async function withFallback(api, primary, fallback, report, label) {
   try { return await api.pages(primary); }
   catch (error) {
@@ -153,8 +178,8 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
   const groupIds = new Set();
   const directGroupIds = new Set();
   const groupNames = new Map();
-  await run('directory', () => api.pages(`/v1.0/${collection}/${id}/transitiveMemberOf/microsoft.graph.group?$select=id,displayName`), rows => {
-    for (const g of rows) { groupIds.add(g.id); groupNames.set(g.id, g.displayName || g.id); report.relationships.push({ name: g.displayName || g.id, kind: 'Group', relation: 'Transitive membership', source: 'directory', objectId: g.id }); }
+  await run('directory', () => api.pages(`/v1.0/${collection}/${id}/transitiveMemberOf/microsoft.graph.group?$select=id,displayName,groupTypes,membershipRule,isAssignableToRole,onPremisesSyncEnabled`), rows => {
+    for (const g of rows) { groupIds.add(g.id); groupNames.set(g.id, g.displayName || g.id); report.relationships.push({ name: g.displayName || g.id, kind: governanceKind(g), relation: 'Transitive membership', source: 'directory', objectId: g.id }); }
   }, 'group memberships');
   await run('directory', () => api.pages(`/v1.0/${collection}/${id}/memberOf/microsoft.graph.group?$select=id,displayName`), rows => rows.forEach(g => directGroupIds.add(g.id)), 'direct groups');
   const startEnd = `createdDateTime ge ${range.from} and createdDateTime le ${range.to}`;
@@ -190,10 +215,10 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
     await run('policies', async () => ({ rows: (await evaluateConditionalAccess(api, { id, type: type === 'user' ? 'user' : 'servicePrincipal', policies: listed?.rows || null })).rows, truncated: Boolean(listed?.truncated) }), (rows, source) => {
       source.coverage = `Microsoft What If evaluation for: ${caApps().map(a => a.name).join(', ')}`;
       source.note = `Evaluated by Microsoft (Conditional Access What If), not by e360. Device platform, location, device state, client app and risk are not supplied, so a policy that depends on them is shown as Incomplete instead of not applying.${listed ? '' : ' The policy list was not readable, so Incomplete policies cannot be shown.'}`;
-      for (const p of rows) report.policies.push({ id: p.id, name: p.name, kind: 'Conditional Access', result: p.result, state: p.state, status: p.result === 'Incomplete' ? 'Incomplete' : p.state, assignment: p.result === 'Incomplete' ? `Incomplete: ${p.missing.join(', ')} unknown` : `Applies to ${p.apps.join(', ')}`, detail: `Grant controls: ${p.grant.join(', ') || 'See policy'}.${p.result === 'Applies' && p.missing.length ? ` Also depends on ${p.missing.join(', ')}, which were not supplied.` : ''}`, source: 'policies', link: policyLink(p.id), linkLabel: 'Open policy', evidence: p.evidence });
+      for (const p of rows) report.policies.push({ id: p.id, name: p.name, kind: 'Conditional Access', result: p.result, state: p.state, status: p.result === 'Incomplete' ? 'Incomplete' : p.state, assignment: p.result === 'Incomplete' ? `Incomplete: ${p.missing.join(', ')} unknown` : `Applies to ${p.apps.join(', ')}`, detail: `Grant controls: ${p.grant.join(', ') || 'See policy'}.${p.result === 'Applies' && p.missing.length ? ` Also depends on ${p.missing.join(', ')}, which were not supplied.` : ''}`, controls: caControls(p.evidence), source: 'policies', link: policyLink(p.id), linkLabel: 'Open policy', evidence: p.evidence });
       // Enabled policies Microsoft did not return for these apps are listed as Does not apply so the Access page shows the full set.
       const seenCa = new Set(rows.map(p => p.id));
-      for (const p of listed?.rows || []) if (p && p.state !== 'disabled' && !seenCa.has(p.id)) report.policies.push({ id: p.id, name: p.displayName || p.id, kind: 'Conditional Access', result: 'Does not apply', state: p.state, status: p.state, assignment: `Does not apply to ${caApps().map(a => a.name).join(', ')} for this identity (Microsoft What If)`, detail: '', source: 'policies', link: policyLink(p.id), linkLabel: 'Open policy', evidence: p });
+      for (const p of listed?.rows || []) if (p && p.state !== 'disabled' && !seenCa.has(p.id)) report.policies.push({ id: p.id, name: p.displayName || p.id, kind: 'Conditional Access', result: 'Does not apply', controls: caControls(p), state: p.state, status: p.state, assignment: `Does not apply to ${caApps().map(a => a.name).join(', ')} for this identity (Microsoft What If)`, detail: '', source: 'policies', link: policyLink(p.id), linkLabel: 'Open policy', evidence: p });
     });
   })());
   const principals = [id, ...directGroupIds].slice(0, 25);
@@ -203,13 +228,15 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
     for (const principal of principals) {
       const group = principal === id ? null : groupNames.get(principal) || principal;
       await run('roles', () => withFallback(api, queryUrl('/v1.0/roleManagement/directory/roleAssignmentScheduleInstances', { '$filter': `principalId eq '${principal}'`, '$expand': 'roleDefinition' }), queryUrl('/v1.0/roleManagement/directory/roleAssignments', { '$filter': `principalId eq '${principal}'`, '$expand': 'roleDefinition' }), report, 'Entra roles & PIM'), rows => {
-        for (const r of rows) { const t = pimTiming(r.startDateTime, r.endDateTime); report.policies.push({ id: r.id, name: r.roleDefinition?.displayName || r.roleDefinitionId, kind: 'Role', status: r.assignmentType === 'Activated' ? 'Active (PIM elevation)' : 'Active', assignment: group ? `Through ${group}` : 'Direct directory role', detail: `Directory scope: ${r.directoryScopeId || '/'}. ${t.text}.`, timing: t, source: 'roles', link: SOURCE.roles.url, linkLabel: 'Open Entra roles', evidence: r }); }
+        for (const r of rows) { const t = pimTiming(r.startDateTime, r.endDateTime); report.policies.push({ id: r.id, name: r.roleDefinition?.displayName || r.roleDefinitionId, kind: 'Role', builtIn: r.roleDefinition?.isBuiltIn ?? null, status: r.assignmentType === 'Activated' ? 'Active (PIM elevation)' : 'Active', assignment: group ? `Through ${group}` : 'Direct directory role', detail: `Directory scope: ${r.directoryScopeId || '/'}. ${t.text}.`, timing: t, source: 'roles', link: SOURCE.roles.url, linkLabel: 'Open Entra roles', evidence: r }); }
       });
       await run('roles', () => withFallback(api, queryUrl('/v1.0/roleManagement/directory/roleEligibilityScheduleInstances', { '$filter': `principalId eq '${principal}'`, '$expand': 'roleDefinition' }), queryUrl('/v1.0/roleManagement/directory/roleEligibilitySchedules', { '$filter': `principalId eq '${principal}'`, '$expand': 'roleDefinition' }), report, 'Entra roles & PIM'), rows => {
-        for (const r of rows) report.policies.push({ id: r.id, name: r.roleDefinition?.displayName || r.roleDefinitionId, kind: 'Role', status: 'Eligible', assignment: group ? `PIM eligibility through ${group}` : 'Direct PIM eligibility', detail: `Scope: ${r.directoryScopeId || '/'}. ${r.endDateTime ? `Eligibility ends ${r.endDateTime}` : 'Permanent eligibility'}.`, source: 'roles', link: SOURCE.roles.url, linkLabel: 'Open PIM', evidence: r });
+        for (const r of rows) report.policies.push({ id: r.id, name: r.roleDefinition?.displayName || r.roleDefinitionId, kind: 'Role', builtIn: r.roleDefinition?.isBuiltIn ?? null, timing: pimTiming(r.startDateTime, r.endDateTime), status: 'Eligible', assignment: group ? `PIM eligibility through ${group}` : 'Direct PIM eligibility', detail: `Scope: ${r.directoryScopeId || '/'}. ${r.endDateTime ? `Eligibility ends ${r.endDateTime}` : 'Permanent eligibility'}.`, source: 'roles', link: SOURCE.roles.url, linkLabel: 'Open PIM', evidence: r });
       });
     }
+    if (type === 'user') report.policies.push(...await pimGroupRoles(api, id, report));
     await resolveScopes(api, report.policies.filter(p => p.source === 'roles'), report);
+    await roleExtras(api, report.policies.filter(p => p.source === 'roles'), report);
   })());
   // Access packages (entitlement management): read-only, user identities only.
   if (type === 'user') tasks.push(run('governance', () => accessPackages(api, id), (rows, source) => {
@@ -244,20 +271,25 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
       for (const o of rows) report.relationships.push({ name: o.displayName || o.id, kind: 'Owner', relation: 'Owns this application', objectId: o.id, source: 'directory' });
     }, 'owners'));
     tasks.push(run('directory', () => api.pages(queryUrl('/v1.0/oauth2PermissionGrants', { '$filter': `clientId eq '${id}'` })), rows => {
-      for (const g of rows) report.policies.push({ id: g.id, name: g.scope || 'Delegated consent', kind: 'Delegated permission', status: 'Consented', role: (g.scope || '').trim() || 'No scopes', assignment: g.consentType === 'AllPrincipals' ? 'Admin consent for all users' : `Consent for one user (${g.principalId})`, date: null, detail: `Resource service principal: ${g.resourceId}. Microsoft Graph does not record when a delegated consent was granted.`, source: 'directory', link: permissionsLink(id, entity.appId), linkLabel: 'Open app permissions', evidence: g });
+      for (const g of rows) report.policies.push({ id: g.id, name: g.scope || 'Delegated consent', kind: 'Delegated permission', status: 'Consented', role: (g.scope || '').trim() || 'No scopes', assignment: g.consentType === 'AllPrincipals' ? 'Admin consent (all users)' : `User consent (${g.principalId})`, consent: g.consentType === 'AllPrincipals' ? 'Admin' : 'User', date: null, detail: `Resource service principal: ${g.resourceId}. Microsoft Graph does not record when a delegated consent was granted.`, source: 'directory', link: permissionsLink(id, entity.appId), linkLabel: 'Open app permissions', evidence: g });
     }, 'delegated consents'));
     if (entity.appId) tasks.push(run('directory', () => api.pages(queryUrl('/v1.0/applications', { '$filter': `appId eq '${odata(entity.appId)}'`, '$select': 'id,displayName,passwordCredentials,keyCredentials' })), rows => {
-      for (const app of rows) for (const c of [...(app.passwordCredentials || []), ...(app.keyCredentials || [])]) report.policies.push({ id: c.keyId, name: c.displayName || c.type || 'Application credential', kind: 'Credential', status: new Date(c.endDateTime) < new Date() ? 'Expired' : 'Configured', role: c.type === 'AsymmetricX509Cert' || c.usage ? 'Certificate' : 'Client secret', date: c.startDateTime || null, assignment: 'App registration credential metadata', detail: `Expires ${c.endDateTime}. Registration object: ${app.id}`, source: 'directory', link: `https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/${entity.appId}`, linkLabel: 'Open credentials' });
+      for (const app of rows) for (const c of [...(app.passwordCredentials || []), ...(app.keyCredentials || [])]) report.policies.push({ id: c.keyId, name: c.displayName || c.type || 'Application credential', kind: 'Credential', expires: c.endDateTime || null, status: new Date(c.endDateTime) < new Date() ? 'Expired' : 'Configured', role: c.type === 'AsymmetricX509Cert' || c.usage ? 'Certificate' : 'Client secret', date: c.startDateTime || null, assignment: 'App registration credential metadata', detail: `Expires ${c.endDateTime}. Registration object: ${app.id}`, source: 'directory', link: `https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/${entity.appId}`, linkLabel: 'Open credentials' });
     }, 'app registration credentials'));
   }
   if (type === 'user') {
+    // Account state (User.Read.All): enabled, member/guest, sync source and the last session revocation.
+    tasks.push(run('directory', async () => ({ rows: [await api.request(`/v1.0/users/${id}?$select=${ACCOUNT_SELECT}`)] }), rows => { report.account = accountState(rows[0]); }, 'account state'));
     tasks.push(run('intune', () => api.pages(queryUrl(`/v1.0/users/${id}/managedDevices`, { '$select': 'id,deviceName,complianceState,operatingSystem,lastSyncDateTime,azureADDeviceId' })), async (rows, source) => {
       source.coverage = 'Current managed device results';
       source.note = 'Devices associated with the user. Per-device compliance and configuration states load only when you open a device (Load policy states).';
+      // Join type comes from the Entra device object (Device.Read.All); missing or unreadable stays 'not returned'.
+      const joinOf = new Map();
+      await Promise.all(rows.filter(d => GUID.test(d.azureADDeviceId || '')).slice(0, 25).map(async d => { try { const e = await api.request(queryUrl('/v1.0/devices', { '$filter': `deviceId eq '${d.azureADDeviceId}'`, '$select': 'id,trustType' })); joinOf.set(d.id, e.value?.[0]?.trustType || null); } catch { /* leave unknown */ } }));
       for (const d of rows) {
         const link = `https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${d.id}`;
         report.relationships.push({ name: d.deviceName, kind: d.operatingSystem, relation: `Device · ${d.complianceState}`, source: 'intune', link });
-        report.policies.push({ id: d.id, name: d.deviceName, kind: 'Device', status: d.complianceState, assignment: 'Managed device associated with user', detail: `Last synchronized: ${d.lastSyncDateTime}`, source: 'intune', link, linkLabel: 'Open device', evidence: d, deviceId: d.id, lazyStates: true });
+        report.policies.push({ id: d.id, name: d.deviceName, kind: 'Device', status: d.complianceState, assignment: 'Managed device associated with user', detail: `Last synchronized: ${d.lastSyncDateTime}`, source: 'intune', link, linkLabel: 'Open device', evidence: d, deviceId: d.id, lazyStates: true, trustType: joinOf.get(d.id) ?? null });
       }
     }));
     // Defender process events load on the Defender tab only (GET /api/defender), so they are not part of this report.
@@ -428,4 +460,19 @@ export async function defenderReport(api, id, days, { now = Date.now(), tenant }
   const capped = rows.length >= DEFENDER_CAP;
   return { ...base, partial: capped, partialReasons: capped ? [{ source: SOURCE.defender.name, reason: `Defender returns at most ${DEFENDER_CAP} process events per query; choose a shorter timeframe to see the rest` }] : [],
     events: rows.map(r => ({ id: `${r.DeviceId}-${r.ReportId}-${r.Timestamp}`, time: new Date(r.Timestamp).toISOString(), title: `${r.FileName} launched`, device: r.DeviceName, account: r.AccountUpn || r.InitiatingProcessAccountUpn, command: r.ProcessCommandLine, link: SOURCE.defender.url, evidence: r })) };
+}
+
+// Admin roles extras: effective permissions from the expanded role definition, and PIM activation rules for eligible Entra roles.
+// Activation rules need RoleManagement.Read.Directory plus a reader role for the viewer; a 403 marks them unavailable, not missing.
+export async function roleExtras(api, roles, report) {
+  for (const p of roles) { const def = p.evidence?.roleDefinition; p.permissions = def ? rolePermissions(def) : null; p.permissionText = def ? permissionSummary(p.permissions) : 'Not returned'; }
+  const eligible = roles.filter(p => p.status === 'Eligible');
+  if (!eligible.length) return;
+  let rules = null, reason = '';
+  try { rules = await activationRules(api); } catch (e) { reason = [401, 403].includes(e.status) ? 'Not readable (needs a reader role such as Global Reader)' : `Not returned (${describeError(e)})`; }
+  for (const p of eligible) {
+    if (/via PIM group/i.test(p.assignment || '')) { p.activation = 'Set on the PIM group (not read: needs RoleManagementPolicy.Read.AzureADGroup)'; continue; }
+    p.activation = rules ? rules.get(p.evidence?.roleDefinitionId) || 'Not returned' : reason;
+  }
+  if (!rules && report?.notes) report.notes.push(`PIM activation rules: ${reason}.`);
 }

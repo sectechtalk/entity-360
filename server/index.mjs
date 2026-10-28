@@ -21,10 +21,13 @@ import { profiles, searchDemo, demoReport } from './demo.mjs';
 import { MicrosoftApi, searchLive, liveReport, activityReport, defenderReport, DEFENDER_DAYS } from './live.mjs';
 import { deviceStates } from './access.mjs';
 import { LAB_SIGNIN_USERS, lookupOptions, signInLookup, demoSignInLookup } from './signins.mjs';
-import { hostingLinks } from './hosting.mjs';
+import { hostingLinks, hostingIngress } from './hosting.mjs';
+import { tabTable, whatIf, B3_DEFERRED } from './bucket3.mjs';
+import { breakGlass, workspaces, runSavedQuery, B4_DEFERRED } from './bucket4.mjs';
+import { loadPage as loadTenantPage } from './bucket5.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const configuredScopes = (process.env.GRAPH_SCOPES || 'User.Read,User.Read.All,Application.Read.All,GroupMember.Read.All,AuditLog.Read.All,Policy.Read.All,RoleManagement.Read.Directory,DeviceManagementManagedDevices.Read.All,ThreatHunting.Read.All,Device.Read.All,Organization.Read.All,DeviceManagementConfiguration.Read.All,DeviceManagementServiceConfig.Read.All,EntitlementManagement.Read.All').split(',').map(s => s.trim()).filter(Boolean);
+const configuredScopes = (process.env.GRAPH_SCOPES || 'User.Read,User.Read.All,Application.Read.All,GroupMember.Read.All,AuditLog.Read.All,Policy.Read.All,RoleManagement.Read.Directory,DeviceManagementManagedDevices.Read.All,ThreatHunting.Read.All,Device.Read.All,Organization.Read.All,DeviceManagementConfiguration.Read.All,DeviceManagementServiceConfig.Read.All,EntitlementManagement.Read.All,AdministrativeUnit.Read.All,PrivilegedEligibilitySchedule.Read.AzureADGroup').split(',').map(s => s.trim()).filter(Boolean);
 const tenantId = process.env.ENTRA_TENANT_ID || '';
 const clientId = process.env.ENTRA_CLIENT_ID || '';
 const isConfigured = GUID.test(tenantId) && GUID.test(clientId);
@@ -162,7 +165,13 @@ export function createApp({ port = Number(process.env.PORT || 3600), createMsal 
       return false;
     }
   };
-  app.get('/api/hosting', (req, res) => { if (!req.session?.mode || req.session.mode === 'demo') return res.json({ groups: [] }); res.json({ groups: hostingLinks() }); });
+  app.get('/api/hosting', async (req, res) => {
+    const s = req.session;
+    if (!s?.mode || s.mode === 'demo') return res.json({ groups: [] });
+    const groups = hostingLinks();
+    groups[0].status = s.mode === 'live' && s.resources?.has('azure') ? await hostingIngress(liveApi(s)) : 'Ingress: connect Azure to read';
+    res.json({ groups });
+  });
   app.get('/api/session', async (req, res) => {
     const s = req.session;
     if (s.authType === 'confidential' && !s.resources.has('azure') && !s.silentTried) { s.silentTried = true; await silentResource(s, 'azure'); await silentResource(s, 'logs'); }
@@ -213,7 +222,7 @@ export function createApp({ port = Number(process.env.PORT || 3600), createMsal 
     if (problem || !cca) return failWith(problem || 'No sign-in is in progress. Start again.');
     try {
       const extra = pending.resource && pending.resource !== 'graph' ? pending.resource : null;
-      const result = await cca.acquireTokenByCode({ code: req.query.code, scopes: scopesFor(extra || 'graph', { mode: 'live' }), redirectUri, codeVerifier: pending.verifier });
+      const result = await cca.acquireTokenByCode({ code: req.query.code, scopes: scopesFor(extra || 'graph', { mode: 'live' }), redirectUri, codeVerifier: pending.verifier, nonce: pending.nonce });
       if (extra) {
         if (!result?.account || result.account.homeAccountId !== s.account?.homeAccountId) throw new Error('different_account');
         if (result.idTokenClaims?.nonce && result.idTokenClaims.nonce !== pending.nonce) throw new Error('nonce');
@@ -352,6 +361,38 @@ export function createApp({ port = Number(process.env.PORT || 3600), createMsal 
     if (!GUID.test(id)) throw fail('Invalid device identifier.');
     if (req.session.mode === 'demo') return res.json({ deviceId: id, states: [], partial: false, link: 'https://intune.microsoft.com/' });
     res.json(await deviceStates(liveApi(req.session), id));
+  });
+  // Bucket 3 tables, loaded when their tab is opened. Live organizational connections only.
+  app.get('/api/tab-table', async (req, res) => {
+    if (req.session.mode !== 'live') throw fail('These tables need a live organizational connection.', 409);
+    const table = String(req.query.table || '');
+    if (table === 'diagnostics' && !req.session.resources.has('azure')) throw fail('Connect Azure to read Entra diagnostic settings.', 409);
+    const days = [1, 7, 30].includes(Number(req.query.days)) ? Number(req.query.days) : 7;
+    res.json({ ...(await tabTable(liveApi(req.session), table, { id: String(req.query.id || ''), type: String(req.query.type || 'user'), appId: String(req.query.appId || '').slice(0, 40), days })), deferred: B3_DEFERRED });
+  });
+  // Bucket 4 pages. Live organizational connections only; Logs reads through ARM.
+  app.get('/api/emergency-access', async (req, res) => {
+    if (req.session.mode !== 'live') throw fail('Emergency access needs a live organizational connection.', 409);
+    res.json({ ...(await breakGlass(liveApi(req.session), { azure: req.session.resources.has('azure') })), deferred: B4_DEFERRED });
+  });
+  // Bucket 5 tenant pages. Live organizational connections only.
+  app.get('/api/tenant-page/:key', async (req, res) => {
+    if (req.session.mode !== 'live') throw fail('This page needs a live organizational connection.', 409);
+    res.json(await loadTenantPage(liveApi(req.session), String(req.params.key), { azure: req.session.resources.has('azure') }));
+  });
+  app.get('/api/logs/workspaces', async (req, res) => {
+    if (req.session.mode !== 'live' || !req.session.resources.has('azure')) throw fail('Connect Azure to list Log Analytics workspaces.', 409);
+    res.json(await workspaces(liveApi(req.session)));
+  });
+  app.post('/api/logs/query', async (req, res) => {
+    if (req.session.mode !== 'live' || !req.session.resources.has('azure')) throw fail('Connect Azure to run saved queries.', 409);
+    res.json(await runSavedQuery(liveApi(req.session), { workspace: String(req.body?.workspace || ''), query: String(req.body?.query || ''), days: Number(req.body?.days) || 7 }));
+  });
+  app.post('/api/ca/whatif', async (req, res) => {
+    if (req.session.mode !== 'live') throw fail('What If needs a live organizational connection.', 409);
+    const id = String(req.body?.id || '');
+    if (!GUID.test(id)) throw fail('Invalid entity identifier.');
+    res.json(await whatIf(liveApi(req.session), { id, type: String(req.body?.type || 'user'), input: req.body?.input || {} }));
   });
   app.post('/api/signins/lookup', async (req, res) => {
     if (req.session.mode === 'personal') throw fail('Entra sign-in logs need an organizational connection.', 409);

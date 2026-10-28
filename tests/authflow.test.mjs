@@ -64,7 +64,7 @@ test('full sign-in: PKCE and nonce are sent, roles are read from the validated t
   const account = { homeAccountId: `u.${TENANT}`, localAccountId: '33333333-3333-3333-3333-333333333333', tenantId: TENANT, username: 'viewer@example.test', name: 'Viewer' };
   const mock = {
     getAuthCodeUrl: async options => { authRequest = options; return `https://login.example.test/authorize?state=${options.state}&code_challenge=${options.codeChallenge}`; },
-    acquireTokenByCode: async options => { redeemed++; assert.ok(options.codeVerifier); return { account, idTokenClaims: { nonce: authRequest.nonce, roles: ['E360.Reader', 'Not.AnEntityRole'] }, accessToken: 'x' }; },
+    acquireTokenByCode: async options => { redeemed++; assert.ok(options.codeVerifier); assert.equal(options.nonce, authRequest.nonce, 'msal 4+ needs the nonce at redemption'); return { account, idTokenClaims: { nonce: authRequest.nonce, roles: ['E360.Reader', 'Not.AnEntityRole'] }, accessToken: 'x' }; },
     getTokenCache: () => ({ serialize: () => '{}', deserialize() {} }),
   };
   const server = createApp({ port: 3644, confidential: true, enforceRoles: true, createConfidential: () => mock, certificate: () => ({ thumbprint: 'A'.repeat(40), privateKey: 'test' }) }).listen(3644, '127.0.0.1');

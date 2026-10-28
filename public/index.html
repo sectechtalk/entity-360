@@ -30,6 +30,28 @@
     <button data-view="deployment" class="nav-item"><span data-icon="activity"></span>Deployment/Onboarding</button>
     <button data-view="portals" class="nav-item"><span data-icon="cloud"></span>Azure Portals</button>
     <button data-view="defender" class="nav-item"><span data-icon="shield"></span>Defender</button>
+    <button data-view="emergency" class="nav-item"><span data-icon="key"></span>Emergency access</button>
+    <button data-view="logs" class="nav-item"><span data-icon="document"></span>Logs</button>
+    <div class="nav-label">TENANT</div>
+    <button data-view="t-settings" class="nav-item"><span data-icon="settings"></span>Settings</button>
+    <button data-view="t-domains" class="nav-item"><span data-icon="cloud"></span>Domains</button>
+    <button data-view="t-roles" class="nav-item"><span data-icon="key"></span>Roles</button>
+    <button data-view="t-hybrid" class="nav-item"><span data-icon="refresh"></span>Hybrid</button>
+    <div class="nav-label">AUTHENTICATION</div>
+    <button data-view="a-methods" class="nav-item"><span data-icon="key"></span>Methods policy</button>
+    <button data-view="a-registration" class="nav-item"><span data-icon="user"></span>Registration</button>
+    <button data-view="a-ca" class="nav-item"><span data-icon="shield"></span>Conditional Access</button>
+    <div class="nav-label">EXTERNAL</div>
+    <button data-view="x-guests" class="nav-item"><span data-icon="user"></span>Guests</button>
+    <button data-view="x-cross" class="nav-item"><span data-icon="cloud"></span>Cross-tenant</button>
+    <div class="nav-label">GOVERNANCE</div>
+    <button data-view="g-entitlements" class="nav-item"><span data-icon="check"></span>Entitlements</button>
+    <button data-view="g-pim" class="nav-item"><span data-icon="key"></span>PIM</button>
+    <button data-view="g-pim-azure" class="nav-item"><span data-icon="cloud"></span>PIM Azure</button>
+    <div class="nav-label">APPS</div>
+    <button data-view="p-enterprise" class="nav-item"><span data-icon="overview"></span>Enterprise apps</button>
+    <button data-view="p-registrations" class="nav-item"><span data-icon="key"></span>App registrations</button>
+    <button data-view="p-consent" class="nav-item"><span data-icon="check"></span>Consent</button>
   </nav>
   <div class="sidebar-bottom"><button id="error-lookup-open" class="nav-item" aria-haspopup="dialog"><span data-icon="info"></span>Error code lookup</button><button id="connection-button" class="nav-item"><span data-icon="settings"></span>Connection &amp; setup</button><a href="/setup.html" target="_blank" rel="noopener" class="guide-link">Setup guide <span>↗</span></a></div>
 </aside>
@@ -70,12 +92,12 @@
         <div class="signin-submit-row"><span id="signin-mode-note" class="muted"></span><button id="signin-run" class="btn" type="submit">Look up sign-ins</button></div>
       </form>
       <div id="signin-feedback" class="signin-feedback" role="status" aria-live="polite"></div>
-      <div id="signin-results" hidden><div id="signin-summary" class="signin-summary"></div><div id="signin-user-status"></div><div id="signin-filters" class="msel-bar"></div><div class="table-wrap table-scroll"><table class="signin-table" data-table-id="signins"><thead><tr><th scope="col">Date <span class="muted">UTC</span></th><th scope="col">Request ID</th><th scope="col">Application</th><th scope="col">Status</th><th scope="col">Sign-in error code</th><th scope="col">IP address</th><th scope="col">Location</th><th scope="col">Conditional Access</th><th scope="col" title="Graph beta only (signIn.agent.agentType); shows a dash for v1.0 results">Agent type</th><th scope="col" title="Graph beta only (signIn.authenticationRequirement); shows a dash for v1.0 results">Authentication requirement</th></tr></thead><tbody id="signin-rows"></tbody></table></div><div class="pagination"><label class="page-size">Rows per page <select id="signin-page-size"><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label><span id="signin-page-info"></span><div><button type="button" id="signin-prev" class="btn" aria-label="Previous sign-in results">Previous</button><button type="button" id="signin-next" class="btn" aria-label="Next sign-in results">Next</button></div></div><div id="signin-group-details" class="signin-group-details" hidden></div><p class="panel-footnote">Read only. Times are UTC. Logs may arrive several minutes late; available retention and collection limits still apply. Repeated rows preserve their individual record IDs.</p></div>
+      <div id="signin-results" hidden><div id="signin-summary" class="signin-summary"></div><div id="signin-user-status"></div><div id="signin-filters" class="msel-bar"></div><div class="table-wrap table-scroll"><table class="signin-table" data-table-id="signins"><thead><tr><th scope="col">Date <span class="muted">UTC</span></th><th scope="col">Request ID</th><th scope="col">Application</th><th scope="col">Status</th><th scope="col">Sign-in error code</th><th scope="col">IP address</th><th scope="col">Location</th><th scope="col">Conditional Access</th><th scope="col" title="signIn.riskLevelDuringSignIn and riskState">Risk</th><th scope="col" title="Graph beta only (signIn.agent.agentType); shows a dash for v1.0 results">Agent type</th><th scope="col" title="Graph beta only (signIn.authenticationRequirement and the methods used from authenticationDetails); shows a dash for v1.0 results">Authentication requirement</th><th scope="col" title="signIn.crossTenantAccessType, homeTenantId and resourceTenantId (v1.0)">Tenant</th><th scope="col" title="Graph beta only (signIn.signInEventTypes); shows a dash for v1.0 results">Sign-in type</th><th scope="col" title="Graph beta only (tokenProtectionStatusDetails.signInSessionStatus and globalSecureAccessIpAddress); shows a dash for v1.0 results">Session</th></tr></thead><tbody id="signin-rows"></tbody></table></div><div class="pagination"><label class="page-size">Rows per page <select id="signin-page-size"><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label><span id="signin-page-info"></span><div><button type="button" id="signin-prev" class="btn" aria-label="Previous sign-in results">Previous</button><button type="button" id="signin-next" class="btn" aria-label="Next sign-in results">Next</button></div></div><div id="signin-group-details" class="signin-group-details" hidden></div><p class="panel-footnote">Read only. Times are UTC. Logs may arrive several minutes late; available retention and collection limits still apply. Repeated rows preserve their individual record IDs.</p></div>
     </details>
     </section>
 
     <section id="access-page" class="page" hidden>
-      <div class="tabs" role="tablist" aria-label="Access"><button class="tab" role="tab" data-tab="ca" aria-selected="true">Conditional Access</button><button class="tab" role="tab" data-tab="roles" aria-selected="false">Admin roles</button><button class="tab" role="tab" data-tab="packages" aria-selected="false">Access packages</button><button class="tab" role="tab" data-tab="groups" aria-selected="false">Groups</button><button id="access-tab-apps" class="tab" role="tab" data-tab="apps" aria-selected="false">App permissions</button></div>
+      <div class="tabs" role="tablist" aria-label="Access"><button class="tab" role="tab" data-tab="ca" aria-selected="true">Conditional Access</button><button class="tab" role="tab" data-tab="roles" aria-selected="false">Admin roles</button><button class="tab" role="tab" data-tab="packages" aria-selected="false">Access packages</button><button class="tab" role="tab" data-tab="groups" aria-selected="false">Groups</button><button id="access-tab-apps" class="tab" role="tab" data-tab="apps" aria-selected="false">App permissions</button><button class="tab" role="tab" data-tab="au" aria-selected="false">Admin units</button><button class="tab" role="tab" data-tab="pimreq" aria-selected="false">PIM requests</button><button class="tab" role="tab" data-tab="audit" aria-selected="false">Entra audit</button><button class="tab" role="tab" data-tab="prov" aria-selected="false">Provisioning</button><button id="access-tab-sso" class="tab" role="tab" data-tab="sso" aria-selected="false" hidden>App roles and SSO</button></div>
       <section class="panel" id="access-tab-body"></section>
     </section>
 
@@ -94,6 +116,7 @@
 
     <section id="health-page" class="page" hidden>
       <section id="intune-panel" hidden aria-labelledby="intune-heading"><div class="panel account-controls"><div class="panel-heading"><div><h2 id="intune-heading">Intune health run</h2><p>Is Intune set up, is this computer configured to use it, and how does Intune arrive at what it shows? Read-only; fixes are proposed, never applied.</p></div></div><div class="account-actions"><button id="intune-connect" class="btn">Microsoft connection &amp; MFA</button><button id="intune-run" class="btn">Run Intune health</button><button id="intune-export" class="btn" data-why="Run this page first; there is nothing to export yet" hidden>Export evidence JSON</button></div><div class="account-actions"><a class="btn" href="/Collect-Entity360Device.ps1" download>Download Windows collector</a><label class="btn">Import device JSON<input id="intune-import" type="file" accept=".json,application/json" hidden></label><button id="intune-collect" class="btn" data-why="Server host collection needs a Windows server">Collect server host</button><button id="intune-clear-local" class="btn" disabled data-why="No snapshot loaded">Clear computer evidence</button></div><p id="intune-local-host" class="account-note"></p><p id="intune-snapshot-note" class="account-note"></p><p id="intune-status" role="status" aria-live="polite"></p></div><div id="intune-results"></div></section>
+      <section id="diag-panel" hidden aria-label="Entra diagnostic settings"></section>
       <section id="coverage-panel" class="panel"><div class="panel-heading"><div><h2>Source coverage</h2><p>Which sources returned data for the selected user, and their limits.</p></div></div><div id="coverage-list" class="coverage-list"></div></section>
       <section id="hosting-panel" class="panel" hidden><div class="panel-heading"><div><h2>Entity 360 hosting</h2><p>Direct portal links for the Azure and Entra resources that run this app.</p></div></div><div id="hosting-list" class="coverage-list"></div></section>
     </section>
@@ -111,6 +134,9 @@
     </section>
 
     <section id="deployment-panel" hidden><div id="deployment-content"></div></section>
+    <section id="b5-panel" hidden><div id="b5-content" class="panel"></div></section>
+    <section id="emergency-panel" hidden><div id="emergency-content" class="panel"></div></section>
+    <section id="logs-panel" hidden><div id="logs-content" class="panel"></div></section>
     <section id="portals-panel" hidden><div id="portals-list" class="account-grid"></div></section>
     <section id="defender-panel" hidden><div id="defender-events"></div><div id="defender-list" class="account-grid"></div></section>
     <section id="billing-panel" hidden><div class="panel account-controls"><h2>Billing visible to the current principal</h2><div class="account-actions"><button id="billing-connect" class="btn">Connect accounts / Azure</button><label>Window<select id="billing-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label><button id="billing-run" class="btn">Check billing</button><button id="billing-export" class="btn" data-why="Run this page first; there is nothing to export yet" hidden>Export billing evidence</button></div><p id="billing-status" role="status" aria-live="polite"></p></div><div id="billing-results"></div></section>

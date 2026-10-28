@@ -17,3 +17,8 @@ export const PIM_ACTIVATION_LINKS = [
   ['Azure resource roles', 'https://portal.azure.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/azurerbac'],
   ['Groups', 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadgroup'],
 ];
+
+// Device trustType to the Entra portal's join type wording.
+export function joinTypeLabel(trust) {
+  return ({ AzureAd: 'Entra joined', ServerAd: 'Hybrid joined', Workplace: 'Registered' })[trust] || (trust ? trust : 'Join type not returned');
+}
