@@ -10,6 +10,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { accountReport, demoAccountReport, normalizeSnapshot } from './account.mjs';
 import { intuneHealthReport, demoIntuneReport } from './intune.mjs';
+import { remediationResults, scriptIdFrom } from './remediation-results.mjs';
+import { RunAudit, requestRun, RUN_SCOPE } from './remediation-runs.mjs';
 import { decide, DecisionLog, rolesFromClaims, newPending, checkCallback, APP_ROLES } from './authflow.mjs';
 import { createKeyVaultAssertion } from './keyvault-assertion.mjs';
 import { connectionPlan, connectionKey } from './connections.mjs';
@@ -25,9 +27,11 @@ import { hostingLinks, hostingIngress } from './hosting.mjs';
 import { tabTable, whatIf, B3_DEFERRED } from './bucket3.mjs';
 import { breakGlass, workspaces, runSavedQuery, B4_DEFERRED } from './bucket4.mjs';
 import { loadPage as loadTenantPage } from './bucket5.mjs';
+import { pimTable, pimPolicy, pimRequest } from './pim.mjs';
+import { accessReport, searchScope, auditLine } from './access-report.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const configuredScopes = (process.env.GRAPH_SCOPES || 'User.Read,User.Read.All,Application.Read.All,GroupMember.Read.All,AuditLog.Read.All,Policy.Read.All,RoleManagement.Read.Directory,DeviceManagementManagedDevices.Read.All,ThreatHunting.Read.All,Device.Read.All,Organization.Read.All,DeviceManagementConfiguration.Read.All,DeviceManagementServiceConfig.Read.All,EntitlementManagement.Read.All,AdministrativeUnit.Read.All,PrivilegedEligibilitySchedule.Read.AzureADGroup').split(',').map(s => s.trim()).filter(Boolean);
+const configuredScopes = (process.env.GRAPH_SCOPES || 'User.Read,User.Read.All,Application.Read.All,GroupMember.Read.All,AuditLog.Read.All,Policy.Read.All,RoleManagement.Read.Directory,DeviceManagementManagedDevices.Read.All,DeviceManagementScripts.Read.All,ThreatHunting.Read.All,Device.Read.All,Organization.Read.All,DeviceManagementConfiguration.Read.All,DeviceManagementServiceConfig.Read.All,EntitlementManagement.Read.All,AdministrativeUnit.Read.All,PrivilegedEligibilitySchedule.Read.AzureADGroup,RoleEligibilitySchedule.Read.Directory,RoleAssignmentSchedule.Read.Directory,RoleAssignmentSchedule.ReadWrite.Directory,PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup,RoleManagementPolicy.Read.Directory,RoleManagementPolicy.Read.AzureADGroup,DeviceManagementManagedDevices.PrivilegedOperations.All').split(',').map(s => s.trim()).filter(Boolean);
 const tenantId = process.env.ENTRA_TENANT_ID || '';
 const clientId = process.env.ENTRA_CLIENT_ID || '';
 const isConfigured = GUID.test(tenantId) && GUID.test(clientId);
@@ -60,6 +64,8 @@ export function createApp({ port = Number(process.env.PORT || 3600), createMsal 
   const app = express();
   const sessions = new Map();
   const decisions = new DecisionLog();
+// Phase 4.8: audit trail of admin-requested Remediation runs (memory + E360_AUDIT stdout lines).
+const runAudit = new RunAudit();
   // Hosted mode (e.g. Azure Container Apps): PUBLIC_BASE_URL=https://<fqdn>. TLS ends at the platform ingress, so the
   // proxy is trusted, cookies are Secure, and only the public host/origin (plus localhost for probes) is accepted.
   const publicUrl = publicBaseUrl ? new URL(publicBaseUrl) : null;
@@ -103,7 +109,7 @@ export function createApp({ port = Number(process.env.PORT || 3600), createMsal 
   };
   app.use(['/api', '/auth'], sessionMiddleware);
   // Signed-out sessions get 401 plus the sign-in path, never fixture data. Only session and sign-in routes stay open.
-  const signedOutOpen = ['/session', '/logout', '/authz/log', '/auth/start', '/auth/status', '/auth/cancel'];
+  const signedOutOpen = ['/session', '/logout', '/auth/start', '/auth/status', '/auth/cancel'];
   app.use('/api', (req, res, next) => {
     if (demoMode || req.session.mode !== 'signedout' || signedOutOpen.includes(req.path)) return next();
     res.status(401).json({ error: 'Sign in with Microsoft first.', signin: '/auth/login' });
@@ -404,6 +410,58 @@ export function createApp({ port = Number(process.env.PORT || 3600), createMsal 
     if (!Number.isFinite(hours) || hours < .25 || hours > 2160) throw fail('Invalid account timeframe.');
     res.json(req.session.mode === 'demo' ? demoAccountReport(req.session.profile) : req.session.mode === 'personal' ? await personalAccountReport(liveApi(req.session)) : await accountReport(liveApi(req.session), { tenant: req.session.tenantId, hours, beta: process.env.ENABLE_GRAPH_BETA === 'true' }));
   });
+  // Unified PIM tables (MY ACCOUNT > PIM, INVESTIGATE > PIM). /api/account and /api/investigate need E360.Reader (ROUTE_ROLES).
+  // Delegated token of the signed-in user only; requests are selfActivate/selfDeactivate, so nobody can elevate someone else.
+  const pimApi = s => { if (s.mode !== 'live') throw fail('PIM needs a live organizational sign-in.', 409); return liveApi(s); };
+  // My PIM (/api/me/pim) needs only a live organizational sign-in, no app role: it reads with filterByCurrentUser and
+  // writes only selfActivate/selfDeactivate for the session's own object id. Nothing from the request body picks the principal.
+  const pimMe = s => { const id = s.account?.idTokenClaims?.oid || s.account?.localAccountId || ''; if (!GUID.test(id)) throw fail('No signed-in user object id.', 401); return { id, self: true }; };
+  app.get('/api/me/pim', async (req, res) => res.json(await pimTable(pimApi(req.session), pimMe(req.session), { azure: req.session.resources.has('azure') })));
+  app.post('/api/me/pim/policy', async (req, res) => res.json(await pimPolicy(pimApi(req.session), String(req.body?.type || ''), req.body?.target)));
+  app.post('/api/me/pim/request', async (req, res) => {
+    const s = req.session, api = pimApi(s), me = pimMe(s), who = s.account?.username || me.id;
+    if (req.body?.type === 'Azure role' && !s.resources.has('azure')) throw fail('Connect Azure to activate Azure roles.', 409);
+    try {
+      const r = await pimRequest(api, me, req.body);
+      console.log(JSON.stringify({ event: 'pim.request', user: who, type: req.body.type, action: req.body.action, target: req.body.target, minutes: req.body.minutes ?? null, status: r.status ?? null }));
+      res.json(r);
+    } catch (e) { console.log(JSON.stringify({ event: 'pim.request', user: who, type: req.body?.type ?? null, action: req.body?.action ?? null, outcome: 'failed', reason: e.message })); throw e; }
+  });
+  // GOVERNANCE > Access report: E360.Admin (ROUTE_ROLES). Read at run time with the viewer's delegated token; nothing stored.
+  // One E360_AUDIT line per run: requester, scope kind, group or role id (never a user's id), row count, outcome.
+  app.get('/api/access-report/search', async (req, res) => res.json({ results: await searchScope(pimApi(req.session), String(req.query.kind || ''), String(req.query.q || '')) }));
+  app.post('/api/access-report/run', async (req, res) => {
+    const s = req.session, api = pimApi(s), kind = String(req.body?.kind || ''), id = String(req.body?.id || ''), started = Date.now();
+    const requester = { upn: s.account?.username || null, objectId: s.account?.idTokenClaims?.oid || s.account?.localAccountId || null };
+    try {
+      const r = await accessReport(api, kind, id);
+      console.log(auditLine({ requester, kind, scopeId: id, rows: r.rows.length, outcome: 'ok', ms: Date.now() - started }));
+      res.json(r);
+    } catch (e) { console.log(auditLine({ requester, kind, scopeId: id, outcome: 'failed', ms: Date.now() - started, error: e.message })); throw e; }
+  });  app.get('/api/investigate/pim', async (req, res) => {
+    const id = String(req.query.id || '');
+    if (!GUID.test(id)) throw fail('Pick a user first.', 400);
+    res.json(await pimTable(pimApi(req.session), { id, self: false }, { azure: req.session.resources.has('azure') }));
+  });
+  // Phase 4.7: network connectivity Remediation results per device. /api/intune prefix = E360.Intune, no fallback.
+  app.get('/api/intune/remediation-results', async (req, res) => {
+    const s = req.session;
+    if (s.mode === 'personal') throw fail('Remediation results need an organizational connection.', 409);
+    const scriptId = scriptIdFrom();
+    if (s.mode !== 'live' || !scriptId) return res.json(await remediationResults(null, scriptId && s.mode === 'live' ? scriptId : null));
+    try { res.json(await remediationResults(liveApi(s), scriptId)); }
+    catch (e) { if (e?.status === 403) return res.status(403).json({ error: e.reason || e.message, denied: 'source', scope: 'DeviceManagementScripts.Read.All' }); throw e; }
+  });
+  // Phase 4.8: single-device run now. E360.Admin only (ROUTE_ROLES), CSRF checked by the session middleware,
+  // the admin's own delegated token, one audit record per request whatever the outcome.
+  app.post('/api/intune/remediation-run', async (req, res) => {
+    const s = req.session;
+    if (s.mode !== 'live') throw fail('Run now needs a live organizational connection.', 409);
+    const requester = { upn: s.account?.username || null, objectId: s.account?.idTokenClaims?.oid || s.account?.localAccountId || null };
+    try { res.json({ record: await requestRun({ api: liveApi(s), scriptId: scriptIdFrom(), managedDeviceId: req.body?.managedDeviceId, reason: req.body?.reason, requester, audit: runAudit }) }); }
+    catch (e) { if (e?.audit) return res.status(e.status || 500).json({ error: e.message, record: e.audit, ...(e.status === 403 ? { denied: 'source', scope: RUN_SCOPE } : {}) }); throw e; }
+  });
+  app.get('/api/intune/remediation-runs', (req, res) => res.json({ rows: runAudit.list(200) }));
   app.post('/api/intune/health', async (req, res) => {
     const s = req.session;
     if (s.mode === 'personal') throw fail('Intune health needs an organizational connection.', 409);

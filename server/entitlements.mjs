@@ -27,7 +27,7 @@ export function packageRow(a, pkg, orgNames) {
 export function requestRow(q) {
   return { id: q.id, name: q.accessPackage?.displayName || 'Unknown package', type: q.requestType, state: q.state, status: q.status || '', created: q.createdDateTime || null };
 }
-export async function accessPackages(api, userId) {
+export async function accessPackages(api, userId, { self = false } = {}) {
   const assigned = await api.pages(queryUrl(`${EM}/assignments`, { '$filter': `target/objectId eq '${userId}'`, '$expand': 'accessPackage,assignmentPolicy' }));
   const live = assigned.rows.filter(a => a.state !== 'expired');
   const ids = [...new Set(live.map(a => a.accessPackage?.id).filter(Boolean))];
@@ -38,8 +38,12 @@ export async function accessPackages(api, userId) {
   await Promise.all(orgIds.slice(0, MAX_PACKAGES).map(id => api.request(`${EM}/connectedOrganizations/${id}?$select=id,displayName`).then(o => orgNames.set(id, o.displayName), () => null)));
   let requests = [], requestsNote = null;
   try {
-    const q = await api.pages(queryUrl(`${EM}/assignmentRequests`, { '$expand': 'accessPackage,target' }));
-    requests = q.rows.filter(r => r.target?.objectId === userId && PENDING.has(r.state)).map(requestRow);
+    // assignmentRequest has no 'target' (Graph v1.0): the person is the requestor (accessPackageSubject),
+    // or the assignment's target when an admin requested on their behalf. Self uses filterByCurrentUser.
+    const q = self
+      ? await api.pages(queryUrl(`${EM}/assignmentRequests/filterByCurrentUser(on='target')`, { '$expand': 'accessPackage' }))
+      : await api.pages(queryUrl(`${EM}/assignmentRequests`, { '$expand': 'accessPackage,requestor,assignment' }));
+    requests = q.rows.filter(r => (self || r.requestor?.objectId === userId || r.assignment?.target?.objectId === userId || r.assignment?.targetId === userId) && PENDING.has(r.state)).map(requestRow);
   } catch (e) { requestsNote = e; }
   return { rows: live.map(a => packageRow(a, pkgs.get(a.accessPackage?.id), orgNames)), requests, requestsNote, truncated: assigned.truncated || ids.length > MAX_PACKAGES, limit: ids.length > MAX_PACKAGES ? `resources read for the first ${MAX_PACKAGES} packages` : undefined };
 }

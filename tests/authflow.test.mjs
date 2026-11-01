@@ -19,6 +19,7 @@ test('each feature maps to exactly one role, and the longest prefix wins', () =>
   assert.equal(roleForPath('/api/billing'), 'E360.Billing');
   assert.equal(roleForPath('/api/licenses'), 'E360.Reader');
   assert.equal(roleForPath('/api/session'), null);
+  assert.equal(roleForPath('/api/authz/log'), 'E360.Admin');
   assert.equal(roleForPath('/api/billingx'), null);
 });
 
@@ -107,9 +108,10 @@ test('full sign-in: PKCE and nonce are sent, roles are read from the validated t
   assert.equal((await get('/api/billing')).status, 403);
   assert.equal((await post('/api/signins/lookup')).status, 403);
 
-  const log = await (await get('/api/authz/log')).json();
-  assert.ok(log.rows.some(r => r.path === '/api/intune/health' && r.outcome === 'denied'));
-  assert.ok(log.rows.every(r => !JSON.stringify(r).includes('accessToken')));
+  // The authorization log needs E360.Admin; a Reader gets the standard 403.
+  const log = await get('/api/authz/log');
+  assert.equal(log.status, 403);
+  assert.equal((await log.json()).requiredRole, 'E360.Admin');
 });
 
 test('without a configured certificate the sign-in route refuses instead of falling back', async t => {

@@ -16,8 +16,8 @@ test('sign-ins table has the Entra Sign-in logs default columns in order', () =>
 });
 
 test('signIn resource fields map into the columns', () => {
-  const e = normalizeSignIn({ id: 'req-1', createdDateTime: '2026-10-25T10:00:00Z', userDisplayName: 'Aaron Brooks', appDisplayName: 'Azure Portal', status: { errorCode: 50074 }, ipAddress: '203.0.113.5', location: { city: 'Seattle', state: 'Washington', countryOrRegion: 'US' }, conditionalAccessStatus: 'notApplied' }, 'aaron@contoso.com', 'v1.0');
-  assert.deepEqual(signInCells(e), { requestId: 'req-1', user: 'Aaron Brooks', app: 'Azure Portal', status: 'Interrupted', ip: '203.0.113.5', location: 'Seattle, Washington, US', ca: 'Not Applied', code: '50074', risk: 'n/a', agent: '\u2014', authReq: '\u2014', tenant: 'n/a', type: '\u2014', session: '\u2014' });
+  const e = normalizeSignIn({ id: 'req-1', createdDateTime: '2026-10-25T10:00:00Z', userDisplayName: 'Megan Bowen', appDisplayName: 'Azure Portal', status: { errorCode: 50074 }, ipAddress: '203.0.113.5', location: { city: 'Seattle', state: 'Washington', countryOrRegion: 'US' }, conditionalAccessStatus: 'notApplied' }, 'aaron@contoso.com', 'v1.0');
+  assert.deepEqual(signInCells(e), { requestId: 'req-1', user: 'Megan Bowen', app: 'Azure Portal', status: 'Interrupted', ip: '203.0.113.5', location: 'Seattle, Washington, US', ca: 'Not Applied', code: '50074', risk: 'n/a', agent: '\u2014', authReq: '\u2014', tenant: 'n/a', type: '\u2014', session: '\u2014' });
   assert.equal(signInStatus(0), 'Success');
   assert.equal(signInStatus(50126), 'Failure');
   assert.equal(signInStatus(null), 'n/a');

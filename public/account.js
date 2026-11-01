@@ -2,7 +2,6 @@ import { pageSlice, pagerHtml, wirePager, DEFAULT_PAGE_SIZE } from './paging.js'
 import { multiSelectHtml, wireMultiSelects, filterOptions, applyFilters } from './multiselect.js';
 import { GROUP_KINDS, ROLE_KINDS, ACCESS_MEMBERSHIPS, accessRows, accessLink, accessType, roleTiming, isRoleRow } from './group-types.js';
 import { partialMessage } from './access-text.js';
-import { groupEligibilityTable } from './tab-tables.js';
 import { entraDeviceLink, intuneDeviceLink, intuneMatch, PIM_ACTIVATION_LINKS, joinTypeLabel } from './device-links.js';
 export function createAccountView({ api, session, esc, external, onSources, openConnection }) {
   const $ = s => document.querySelector(s);
@@ -31,7 +30,7 @@ export function createAccountView({ api, session, esc, external, onSources, open
     }
     // Each My account page shows one slice of the same report; nothing is repeated across them.
     const why = report ? 'This section was not returned. The source may be unavailable or your account lacks the permission to read it.' : 'Nothing collected yet. Choose Check my account above.';
-    const elevate = box('Elevate (PIM)', `<p>Activate an eligible role or group membership in Privileged Identity Management. Opens in a new tab.</p><div class="card-actions">${PIM_ACTIVATION_LINKS.map(([label, url]) => external(url, label)).join(' ')}</div><h3>PIM for Groups eligibility</h3>${report ? groupEligibilityTable([...(report.sections?.groups || []), ...(report.sections?.roles || [])], { esc, external, fmtTime: t => t && Number.isFinite(Date.parse(t)) ? `${new Date(t).toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC` : '' }) : '<p class="account-note">Choose Check my account to list your group eligibility.</p>'}`);
+    const elevate = box('Elevate (PIM)', `<p>Activate or deactivate your eligible Entra roles, PIM groups and Azure roles on MY ACCOUNT &gt; My PIM, without leaving Entity 360. The Microsoft PIM pages open in a new tab.</p><div class="card-actions"><button type="button" class="btn" data-go="my-pim">Open My PIM</button> ${PIM_ACTIVATION_LINKS.map(([label, url]) => external(url, label)).join(' ')}</div>`);
     $('#my-access').innerHTML = elevate + (out.access || box('My access', `<p>${esc(why)}</p>`));
     renderGroups();
     $('#account-cloud').innerHTML = out.device || box('My devices in Entra and Intune', `<p>${esc(why)}</p>`);

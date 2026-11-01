@@ -4,16 +4,24 @@ import { randomBytes } from 'node:crypto';
 // grant access to a source: each backend call still runs with the viewer's own delegated token, and the source
 // decides. A denial is final; nothing in this module (or its callers) retries a denied read with another identity.
 
-export const APP_ROLES = ['E360.Reader', 'E360.SignIns', 'E360.Intune', 'E360.Billing'];
+export const APP_ROLES = ['E360.Reader', 'E360.SignIns', 'E360.Intune', 'E360.Billing', 'E360.Admin'];
 
 // Backend route prefix -> the app role that opens it. Longest prefix wins. Routes not listed need only a session.
 export const ROUTE_ROLES = [
   ['/api/signins', 'E360.SignIns'],
   ['/api/intune', 'E360.Intune'],
+  // Phase 4.8: run now and its audit trail are admin actions, not Intune viewing.
+  ['/api/intune/remediation-run', 'E360.Admin'],
+  ['/api/intune/remediation-runs', 'E360.Admin'],
   ['/api/billing', 'E360.Billing'],
   ['/api/portfolio', 'E360.Billing'],
+  // Authorization decision log: every user's decisions, so only E360.Admin. Admin implies no other role and no other role implies Admin.
+  ['/api/authz', 'E360.Admin'],
+  // On-demand access report: everyone's access to a group, role or user, so only E360.Admin.
+  ['/api/access-report', 'E360.Admin'],
   ['/api/licenses', 'E360.Reader'],
   ['/api/account', 'E360.Reader'],
+  // '/api/me/pim' (My PIM) is deliberately not listed: session only, own assignments only (see server/index.mjs).
   ['/api/entities', 'E360.Reader'],
   ['/api/investigate', 'E360.Reader'],
   ['/api/activity', 'E360.Reader'],

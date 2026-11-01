@@ -12,19 +12,23 @@
 <aside class="sidebar">
   <a class="brand" href="/"><span class="brand-mark">◈</span><span>Entity <b>360</b><small>IDENTITY WORKSPACE</small></span></a>
   <nav id="navigation" aria-label="Main navigation">
-    <div class="nav-label">INVESTIGATE</div>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="investigate"><span>INVESTIGATE</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="summary" class="nav-item active"><span data-icon="overview"></span>Summary</button>
     <button data-view="signins" class="nav-item"><span data-icon="user"></span>Sign-ins</button>
     <button data-view="access" class="nav-item"><span data-icon="shield"></span>Access</button>
+        <button data-view="pim" class="nav-item"><span data-icon="shield"></span>PIM</button>
     <button data-view="devices" class="nav-item"><span data-icon="device"></span>Devices</button>
     <button data-view="activity" class="nav-item"><span data-icon="activity"></span>Azure activity</button>
     <button data-view="health" class="nav-item"><span data-icon="check"></span>Health checks</button>
-    <div class="nav-label">MY ACCOUNT</div>
+<button data-view="remediation" class="nav-item"><span data-icon="key"></span>Remediation results</button>
+<button data-view="authz" class="nav-item"><span data-icon="key"></span>Authorization log</button>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="my-account"><span>MY ACCOUNT</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="my-summary" class="nav-item"><span data-icon="overview"></span>Summary</button>
     <button data-view="my-signins" class="nav-item"><span data-icon="user"></span>My sign-ins</button>
     <button data-view="my-access" class="nav-item"><span data-icon="shield"></span>My access</button>
+        <button data-view="my-pim" class="nav-item"><span data-icon="shield"></span>My PIM</button>
     <button data-view="my-device" class="nav-item"><span data-icon="device"></span>My device</button>
-    <div class="nav-label">MORE TOOLS</div>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="more-tools"><span>MORE TOOLS</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="licenses" class="nav-item"><span data-icon="key"></span>Licenses</button>
     <button data-view="billing" class="nav-item"><span data-icon="document"></span>Billing</button>
     <button data-view="deployment" class="nav-item"><span data-icon="activity"></span>Deployment/Onboarding</button>
@@ -32,28 +36,31 @@
     <button data-view="defender" class="nav-item"><span data-icon="shield"></span>Defender</button>
     <button data-view="emergency" class="nav-item"><span data-icon="key"></span>Emergency access</button>
     <button data-view="logs" class="nav-item"><span data-icon="document"></span>Logs</button>
-    <div class="nav-label">TENANT</div>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="tenant"><span>TENANT</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="t-settings" class="nav-item"><span data-icon="settings"></span>Settings</button>
     <button data-view="t-domains" class="nav-item"><span data-icon="cloud"></span>Domains</button>
     <button data-view="t-roles" class="nav-item"><span data-icon="key"></span>Roles</button>
     <button data-view="t-hybrid" class="nav-item"><span data-icon="refresh"></span>Hybrid</button>
-    <div class="nav-label">AUTHENTICATION</div>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="authentication"><span>AUTHENTICATION</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="a-methods" class="nav-item"><span data-icon="key"></span>Methods policy</button>
     <button data-view="a-registration" class="nav-item"><span data-icon="user"></span>Registration</button>
     <button data-view="a-ca" class="nav-item"><span data-icon="shield"></span>Conditional Access</button>
-    <div class="nav-label">EXTERNAL</div>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="external"><span>EXTERNAL</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="x-guests" class="nav-item"><span data-icon="user"></span>Guests</button>
     <button data-view="x-cross" class="nav-item"><span data-icon="cloud"></span>Cross-tenant</button>
-    <div class="nav-label">GOVERNANCE</div>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="governance"><span>GOVERNANCE</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="g-entitlements" class="nav-item"><span data-icon="check"></span>Entitlements</button>
     <button data-view="g-pim" class="nav-item"><span data-icon="key"></span>PIM</button>
     <button data-view="g-pim-azure" class="nav-item"><span data-icon="cloud"></span>PIM Azure</button>
-    <div class="nav-label">APPS</div>
+    <button data-view="g-access-report" class="nav-item"><span data-icon="document"></span>Access report</button>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="apps"><span>APPS</span><span class="nav-chevron" aria-hidden="true"></span></div>
     <button data-view="p-enterprise" class="nav-item"><span data-icon="overview"></span>Enterprise apps</button>
     <button data-view="p-registrations" class="nav-item"><span data-icon="key"></span>App registrations</button>
     <button data-view="p-consent" class="nav-item"><span data-icon="check"></span>Consent</button>
+    <div class="nav-label" role="button" tabindex="0" aria-expanded="true" data-section="tools"><span>TOOLS</span><span class="nav-chevron" aria-hidden="true"></span></div>
+    <button id="error-lookup-open" class="nav-item" aria-haspopup="dialog"><span data-icon="info"></span>Error code lookup</button>
   </nav>
-  <div class="sidebar-bottom"><button id="error-lookup-open" class="nav-item" aria-haspopup="dialog"><span data-icon="info"></span>Error code lookup</button><button id="connection-button" class="nav-item"><span data-icon="settings"></span>Connection &amp; setup</button><a href="/setup.html" target="_blank" rel="noopener" class="guide-link">Setup guide <span>↗</span></a></div>
+  <div class="sidebar-bottom"><button id="connection-button" class="nav-item"><span data-icon="settings"></span>Connection &amp; setup</button><a href="/setup.html" target="_blank" rel="noopener" class="guide-link">Setup guide <span>↗</span></a></div>
 </aside>
 <div class="workspace">
   <header class="topbar">
@@ -101,7 +108,8 @@
       <section class="panel" id="access-tab-body"></section>
     </section>
 
-    <section id="devices-page" class="page" hidden><p id="devices-explain" class="page-note">These are the Intune managed devices associated with the user under investigation, read from Microsoft Graph /users/{id}/managedDevices (devices where this user is the Intune primary user). Entra-only devices that are not enrolled in Intune, shared or userless devices, and devices whose primary user is someone else are not listed. Up to 10 result pages are read. Only user identities have devices here.</p><div id="device-cards" class="device-grid"></div></section>
+    <section id="pim-page" class="page" hidden><div id="pim-page-body"></div></section>
+      <section id="devices-page" class="page" hidden><p id="devices-explain" class="page-note">These are the Intune managed devices associated with the user under investigation, read from Microsoft Graph /users/{id}/managedDevices (devices where this user is the Intune primary user). Entra-only devices that are not enrolled in Intune, shared or userless devices, and devices whose primary user is someone else are not listed. Up to 10 result pages are read. Only user identities have devices here.</p><div id="device-cards" class="device-grid"></div></section>
 
     <section id="activity-page" class="page" hidden>
       <div id="azure-banner" class="banner" hidden><span id="azure-banner-text">Azure is not connected, so the activity log cannot be read.</span><button id="azure-connect" class="btn">Connect Azure</button></div>
@@ -126,6 +134,7 @@
       <div id="my-summary" class="my-page"><div id="account-identity"></div><div id="my-summary-cards" class="summary-grid"></div></div>
       <div id="my-signins" class="my-page"></div>
       <div id="my-access" class="my-page account-grid"></div>
+          <div id="my-pim" class="my-page" hidden></div>
       <div id="my-device" class="my-page">
         <div id="account-cloud" class="account-grid"></div>
         <div class="panel account-controls"><h2 id="account-heading">This computer</h2><div class="account-actions"><a class="btn" href="/Collect-Entity360Device.ps1" download>Download Windows collector</a><label class="btn">Import device JSON<input id="account-import" type="file" accept=".json,application/json" hidden></label><button id="account-collect" class="btn" data-why="Server host collection needs a Windows server">Collect server host</button><button id="account-clear-local" class="btn" data-why="No snapshot loaded">Clear local snapshot</button></div><p id="account-local-host" class="account-note"></p><details><summary>How to collect another Windows computer</summary><p>Download the collector on the computer being investigated. Open Windows PowerShell as its signed-in user and run:</p><pre>powershell.exe -NoProfile -File "$env:USERPROFILE\Downloads\Collect-Entity360Device.ps1"</pre><p>It saves a JSON file on that user’s Desktop. Import that JSON here. It reads local configuration without tenant sign-in. Windows execution policy may require reviewing and unblocking the downloaded script first.</p></details></div>
@@ -135,8 +144,15 @@
 
     <section id="deployment-panel" hidden><div id="deployment-content"></div></section>
     <section id="b5-panel" hidden><div id="b5-content" class="panel"></div></section>
+<section id="access-report-panel" hidden aria-labelledby="ar-heading"><section class="panel"><div class="panel-heading"><div><h2 id="ar-heading">Access report <span id="ar-count" class="count"></span></h2><p>Who has access to one group, directory role or user right now: group members, directory roles, PIM eligible and active, end dates and last sign-in. Read when you run it; nothing is stored. Export builds the CSV in your browser.</p></div><div class="card-actions"><button type="button" id="ar-export" class="btn" data-why="Run the report first"><span data-icon="download"></span>Export CSV</button></div></div>
+<form id="ar-search-form" class="ar-search"><label for="ar-kind">Scope</label><select id="ar-kind"></select><label for="ar-q">Name starts with</label><input id="ar-q" type="search" maxlength="64" autocomplete="off" placeholder="e.g. sg-e360 or Global Reader"><button type="submit" class="btn">Search</button></form>
+<div id="ar-results" class="ar-results" role="group" aria-label="Search results"></div><p id="ar-picked" class="muted"></p><div class="card-actions"><button type="button" id="ar-run" class="btn" data-why="Search and pick a group, role or user first">Run report</button></div>
+<p id="ar-status" class="page-note" aria-live="polite"></p><div id="ar-table"></div><div id="ar-notes"></div></section></section>
     <section id="emergency-panel" hidden><div id="emergency-content" class="panel"></div></section>
-    <section id="logs-panel" hidden><div id="logs-content" class="panel"></div></section>
+    <section id="remediation-panel" hidden aria-labelledby="rem-heading"><section class="panel"><div class="panel-heading"><div><h2 id="rem-heading">Remediation results <span id="rem-count" class="count"></span></h2><p id="rem-help"></p></div><div class="filter-row"><label>Status <select id="rem-filter"><option value="all">All</option><option value="ok">OK</option><option value="problem">Problem</option></select></label><button type="button" id="rem-refresh" class="btn">Refresh</button><button type="button" id="rem-export" class="btn" disabled>Export CSV</button></div></div><div class="table-wrap table-scroll" id="rem-table"></div><p id="rem-status" class="panel-footnote"></p><div id="rem-run-form" hidden></div></section><section class="panel" id="rem-runs-panel" hidden aria-labelledby="rem-runs-heading"><div class="panel-heading"><div><h2 id="rem-runs-heading">Run requests <span id="rem-runs-count" class="count"></span></h2><p id="rem-runs-help"></p></div><div class="filter-row"><button type="button" id="rem-runs-export" class="btn" disabled>Export CSV</button></div></div><div class="table-wrap table-scroll" id="rem-runs-table"></div></section></section>
+<section id="authz-panel" hidden aria-labelledby="authz-heading"><section class="panel"><div class="panel-heading"><div><h2 id="authz-heading">Authorization log <span id="authz-count" class="count"></span></h2><p id="authz-help"></p><p id="authz-enforced" class="muted"></p></div><div class="filter-row"><label>Decision <select id="authz-filter"><option value="all">All</option><option value="allowed">Allowed</option><option value="denied">Denied</option></select></label><button type="button" id="authz-refresh" class="btn">Refresh</button><button type="button" id="authz-export" class="btn" disabled>Export CSV</button></div></div><div class="table-wrap table-scroll" id="authz-table"></div><p id="authz-status" class="panel-footnote"></p></section></section>
+<section id="logs-panel" hidden><div id="logs-content" class="panel"></div></section>
+    <section id="denied-panel" hidden aria-live="polite"></section>
     <section id="portals-panel" hidden><div id="portals-list" class="account-grid"></div></section>
     <section id="defender-panel" hidden><div id="defender-events"></div><div id="defender-list" class="account-grid"></div></section>
     <section id="billing-panel" hidden><div class="panel account-controls"><h2>Billing visible to the current principal</h2><div class="account-actions"><button id="billing-connect" class="btn">Connect accounts / Azure</button><label>Window<select id="billing-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label><button id="billing-run" class="btn">Check billing</button><button id="billing-export" class="btn" data-why="Run this page first; there is nothing to export yet" hidden>Export billing evidence</button></div><p id="billing-status" role="status" aria-live="polite"></p></div><div id="billing-results"></div></section>

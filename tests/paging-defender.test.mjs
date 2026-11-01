@@ -139,7 +139,7 @@ test('My device: each Entra device opens its own Entra page, and its Intune page
 
 test('Defender loads on the Defender tab only, with a timeframe selector; Activity does not repeat Defender rows', async () => {
   const app = await read('public/app.js'), defender = await read('public/defender.js'), index = await read('server/index.mjs');
-  assert.match(app, /defenderEvents\.setActive\(v === 'defender'\)/);
+  assert.match(app, /defenderEvents\.setActive\(a?v === 'defender'\)/);
   assert.match(app, /e\.source !== 'defender'/);
   assert.match(defender, /id="defender-days"/);
   assert.match(defender, /DEFENDER_DAYS = \[1, 3, 7, 14, 30\]/);
