@@ -16,7 +16,7 @@ test('scope fix: .env.example and the server default request EntitlementManageme
   const def = read('server/index.mjs').match(/process\.env\.GRAPH_SCOPES \|\| '([^']+)'/)[1].split(',');
   for (const s of NEW_SCOPES) { assert.ok(env.includes(s), `.env.example missing ${s}`); assert.ok(def.includes(s), `server default missing ${s}`); }
   assert.deepEqual([...env].sort(), [...def].sort(), '.env.example and the server default list the same scopes');
-  assert.ok(!env.some(s => /\.ReadWrite\./.test(s)), 'read-only scopes only');
+  assert.ok(!env.some(s => /\.ReadWrite\./.test(s) && !['RoleAssignmentSchedule.ReadWrite.Directory', 'PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup'].includes(s)), 'read-only scopes only, except PIM self-activation');
 });
 
 test('Authentication requirement shows the sign-in method (passkey, TAP, certificate)', () => {

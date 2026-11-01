@@ -111,7 +111,7 @@ read permissions and show only part of their data until those are granted.
   `AdministrativeUnit.Read.All`, `EntitlementManagement.Read.All` and `PrivilegedEligibilitySchedule.Read.AzureADGroup`.
   Pages that need further scopes (for example identity risk, access reviews, terms of use, lifecycle workflows) are
   listed as deferred in the app rather than requested.
-- App roles `E360.Reader`, `E360.SignIns`, `E360.Intune`, `E360.Billing` gate which features a person can open. Roles come
+- App roles `E360.Reader`, `E360.SignIns`, `E360.Intune`, `E360.Billing`, `E360.Admin` gate which features a person can open. Roles come
   only from the validated ID token; unknown role names are dropped.
 - Billing is denied unless you are in `sg-e360-billing`.
 - The E360 MFA Conditional Access policy is in report-only mode.

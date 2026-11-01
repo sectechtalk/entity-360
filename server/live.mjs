@@ -23,17 +23,23 @@ export async function readBody(response) {
   if (!text) return {};
   try { return JSON.parse(text); } catch { return response.ok ? {} : { error: { code: `HTTP${response.status}`, message: text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) } }; }
 }
+// Sign-in log queries are the slowest Graph call; the Summary reads the newest 200 at most and gives up
+// after 20 seconds with what it has (flagged slow) rather than hitting the 25-second request timeout.
+// signIns supports only $filter, $top and $skiptoken (no $select), so the filter is the only narrowing lever.
+export const SIGNIN_PAGING = { maxPages: 4, timeoutMs: 15000, budgetMs: 20000, keepPartial: true };
+export const CONSENTS_NEEDED = 'reading delegated consents needs the Directory.Read.All delegated scope (not requested by this app) and a directory role such as Directory Readers or Global Reader; Microsoft Graph has no route for this that works for a user without a role';
+const consentsError = e => { if (e?.status === 403) e.reason = `${CONSENTS_NEEDED}${e.upstreamCode ? ` (${e.upstreamCode})` : ''}`; throw e; };
 export class MicrosoftApi {
   constructor(tokenFor, { fetcher = fetch, maxPages = 10 } = {}) { this.tokenFor = tokenFor; this.fetcher = fetcher; this.maxPages = maxPages; this.claimsChallenged = false; }
-  async request(path, { method = 'GET', body, origin = GRAPH } = {}) {
+  async request(path, { method = 'GET', body, origin = GRAPH, timeoutMs = 25000 } = {}) {
     const url = new URL(path, origin);
     if (!REQUEST_ORIGINS.has(url.origin) || url.username || url.password) throw fail('Unsupported upstream URL.', 502);
     const token = await this.tokenFor(url.origin === ARM ? 'azure' : url.origin === LOGS ? 'logs' : 'graph');
     for (let attempt = 0; attempt < 3; attempt++) {
       let response;
       try {
-        response = await this.fetcher(url, { method, redirect: 'error', signal: AbortSignal.timeout(25000), headers: requestHeaders(token), ...(body ? { body: JSON.stringify(body) } : {}) });
-      } catch (e) { throw Object.assign(fail('The source could not be reached. Try again.', 502), { reason: e?.name === 'TimeoutError' ? 'timed out after 25 seconds' : 'the service could not be reached' }); }
+        response = await this.fetcher(url, { method, redirect: 'error', signal: AbortSignal.timeout(timeoutMs), headers: requestHeaders(token), ...(body ? { body: JSON.stringify(body) } : {}) });
+      } catch (e) { throw Object.assign(fail('The source could not be reached. Try again.', 502), { reason: e?.name === 'TimeoutError' ? `timed out after ${Math.round(timeoutMs / 1000)} seconds` : 'the service could not be reached', timedOut: e?.name === 'TimeoutError' }); }
       // Honor Retry-After up to 60 seconds; at most two retries keep the total wait bounded.
       if ((response.status === 429 || response.status === 503) && attempt < 2) {
         const delay = Math.min(60, Math.max(1, Number(response.headers.get('retry-after')) || 1));
@@ -53,10 +59,19 @@ export class MicrosoftApi {
       return data;
     }
   }
-  async pages(path, options) {
+  // keepPartial: a timeout (or an exhausted budgetMs) after some pages returns the rows read so far,
+  // flagged slow, instead of failing the source. Used by sign-ins, whose log queries can be slow.
+  async pages(path, options = {}) {
+    const { maxPages = this.maxPages, budgetMs, keepPartial = false, ...requestOptions } = options;
     let url = path, rows = [], page = 0;
-    while (url && page < this.maxPages) {
-      const data = await this.request(url, options);
+    const started = Date.now();
+    const slow = seconds => ({ rows, truncated: true, slow: true, limit: `slow: Microsoft did not finish within ${seconds} seconds; showing the ${rows.length} most recent records. Narrow the timeframe for the rest` });
+    while (url && page < maxPages) {
+      let timeoutMs = requestOptions.timeoutMs;
+      if (budgetMs) { const left = budgetMs - (Date.now() - started); if (left < 1000) return slow(Math.round(budgetMs / 1000)); timeoutMs = Math.min(timeoutMs || 25000, left); }
+      let data;
+      try { data = await this.request(url, { ...requestOptions, ...(timeoutMs ? { timeoutMs } : {}) }); }
+      catch (e) { if (keepPartial && e?.timedOut) return slow(Math.round((Date.now() - started) / 1000)); throw e; }
       rows.push(...(data.value || []));
       url = data['@odata.nextLink'] || data.nextLink;
       page++;
@@ -161,8 +176,10 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
     try {
       const result = await operation();
       const source = addSource(sourceId);
-      if (result.truncated) { flag(source.name, result.limit || 'page limit reached (1,000 records); narrow the timeframe'); source.status = 'Partial'; source.note = 'Page limit reached. Narrow the timeframe to retrieve the remaining records.'; }
+      if (result.truncated) { flag(source.name, result.limit || 'page limit reached (1,000 records); narrow the timeframe'); source.status = 'Partial'; source.note = result.slow ? 'Slow: Microsoft did not answer in time, so only the most recent records are shown. Narrow the timeframe to retrieve the rest.' : 'Page limit reached. Narrow the timeframe to retrieve the remaining records.'; }
+      const note = source.note;
       await consume(result.rows ?? result, source);
+      if (result.slow) source.note = `${note} ${source.note}`;
       return result;
     } catch (error) {
       // label names the exact call, so the banner says which directory query failed and which scope it needs.
@@ -184,10 +201,10 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
   await run('directory', () => api.pages(`/v1.0/${collection}/${id}/memberOf/microsoft.graph.group?$select=id,displayName`), rows => rows.forEach(g => directGroupIds.add(g.id)), 'direct groups');
   const startEnd = `createdDateTime ge ${range.from} and createdDateTime le ${range.to}`;
   const signInFilter = type === 'user'
-    ? `${startEnd} and userId eq '${id}'${beta ? " and signInEventTypes/any(t:t eq 'interactiveUser' or t eq 'nonInteractiveUser')" : ''}`
+    ? `userId eq '${id}' and ${startEnd}${beta ? " and signInEventTypes/any(t:t eq 'interactiveUser' or t eq 'nonInteractiveUser')" : ''}`
     : `${startEnd} and servicePrincipalId eq '${id}' and signInEventTypes/any(t:t eq '${type === 'managedIdentity' ? 'managedIdentity' : 'servicePrincipal'}')`;
   const tasks = [];
-  if (type === 'user' || beta) tasks.push(run('signin', () => api.pages(queryUrl(`/${beta ? 'beta' : 'v1.0'}/auditLogs/signIns`, { '$filter': signInFilter, '$top': '100' })), (rows, source) => {
+  if (type === 'user' || beta) tasks.push(run('signin', () => api.pages(queryUrl(`/${beta ? 'beta' : 'v1.0'}/auditLogs/signIns`, { '$filter': signInFilter, '$top': '50' }), SIGNIN_PAGING), (rows, source) => {
     source.note = beta ? 'Includes requested sign-in event types through Microsoft Graph beta (preview).' : 'Microsoft Graph v1.0 interactive user sign-ins. Noninteractive and workload sign-ins require the optional beta connector.';
     report.events.push(...rows.map(s => ({
       id: s.id, time: s.createdDateTime, category: 'Sign-ins', title: `${s.appDisplayName || s.resourceDisplayName || 'Application'} sign-in`, result: s.status?.errorCode === 0 ? 'Success' : s.conditionalAccessStatus === 'failure' ? 'Blocked' : 'Failed', source: 'signin', actor: entity.name, target: s.resourceDisplayName || s.appDisplayName, direction: 'Actor', ip: s.ipAddress, correlationId: s.correlationId, explanation: s.status?.failureReason || 'See the recorded sign-in result and policy evaluations.',
@@ -259,7 +276,7 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
   if (type === 'user') {
     for (const gid of [...directGroupIds].slice(0, 24)) tasks.push(run('directory', () => api.pages(`/v1.0/groups/${gid}/appRoleAssignments`), rows => assignmentRows(rows, groupNames.get(gid) || gid), 'group app role assignments'));
     // Delegated consents this user gave (or that an admin gave on their behalf). Tenant-wide admin consents are on each app's Permissions blade.
-    tasks.push(run('directory', () => api.pages(queryUrl('/v1.0/oauth2PermissionGrants', { '$filter': `principalId eq '${id}'` })), async rows => {
+    tasks.push(run('directory', () => api.pages(queryUrl('/v1.0/oauth2PermissionGrants', { '$filter': `principalId eq '${id}'` })).catch(consentsError), async rows => {
       for (const g of rows) {
         const [client, res] = await Promise.all([resourceSp(g.clientId), resourceSp(g.resourceId)]);
         report.policies.push({ id: g.id, name: client?.displayName || g.clientId, kind: 'Delegated permission', status: 'Consented', role: (g.scope || '').trim() || 'No scopes', assignment: 'Consent for this user only', date: null, detail: `To ${res?.displayName || g.resourceId}. Microsoft Graph does not record when a delegated consent was granted.`, source: 'directory', link: permissionsLink(g.clientId, client?.appId), linkLabel: 'Open app permissions', evidence: g });
@@ -270,7 +287,7 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
     tasks.push(run('directory', () => api.pages(`/v1.0/servicePrincipals/${id}/owners?$select=id,displayName`), rows => {
       for (const o of rows) report.relationships.push({ name: o.displayName || o.id, kind: 'Owner', relation: 'Owns this application', objectId: o.id, source: 'directory' });
     }, 'owners'));
-    tasks.push(run('directory', () => api.pages(queryUrl('/v1.0/oauth2PermissionGrants', { '$filter': `clientId eq '${id}'` })), rows => {
+    tasks.push(run('directory', () => api.pages(queryUrl('/v1.0/oauth2PermissionGrants', { '$filter': `clientId eq '${id}'` })).catch(consentsError), rows => {
       for (const g of rows) report.policies.push({ id: g.id, name: g.scope || 'Delegated consent', kind: 'Delegated permission', status: 'Consented', role: (g.scope || '').trim() || 'No scopes', assignment: g.consentType === 'AllPrincipals' ? 'Admin consent (all users)' : `User consent (${g.principalId})`, consent: g.consentType === 'AllPrincipals' ? 'Admin' : 'User', date: null, detail: `Resource service principal: ${g.resourceId}. Microsoft Graph does not record when a delegated consent was granted.`, source: 'directory', link: permissionsLink(id, entity.appId), linkLabel: 'Open app permissions', evidence: g });
     }, 'delegated consents'));
     if (entity.appId) tasks.push(run('directory', () => api.pages(queryUrl('/v1.0/applications', { '$filter': `appId eq '${odata(entity.appId)}'`, '$select': 'id,displayName,passwordCredentials,keyCredentials' })), rows => {

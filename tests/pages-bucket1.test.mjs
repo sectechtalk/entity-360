@@ -81,7 +81,7 @@ test('Access packages Policy names connected organizations for external policies
 
 test('delegated read-only scopes only, one .btn style, no demo mode added', () => {
   const env = read('.env.example').match(/^GRAPH_SCOPES=(.*)$/m)[1].split(',');
-  assert.ok(!env.some(s => /ReadWrite/.test(s)), 'no write scopes');
+  assert.ok(!env.some(s => /ReadWrite/.test(s) && !['RoleAssignmentSchedule.ReadWrite.Directory', 'PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup'].includes(s)), 'no write scopes except PIM self-activation');
   for (const f of ['server/hosting.mjs', 'server/entitlements.mjs', 'public/device-links.js']) assert.doesNotMatch(read(f), /demo/i);
   assert.doesNotMatch(read('public/app.js') + read('public/account.js'), /class="btn-[a-z]/);
 });

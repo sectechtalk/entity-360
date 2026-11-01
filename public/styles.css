@@ -44,6 +44,16 @@ html[data-theme="light"]{color-scheme:light}
 .btn:focus-visible{outline:2px solid var(--t178)!important;outline-offset:2px!important}
 .btn .icon{width:15px!important;height:15px!important}
 .btn:disabled,.btn[disabled]{background:var(--t173)!important;border-color:var(--t174)!important;color:var(--t103)!important;cursor:not-allowed!important;opacity:1!important;filter:none!important}
+.btn:active:not(:disabled),.btn.btn-clicked:not(:disabled){filter:brightness(.78)!important;transform:translateY(1px)!important}
+.btn[aria-busy="true"]{cursor:progress!important}
+.btn[aria-busy="true"]::before{content:"";display:inline-block;width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:btn-spin .8s linear infinite}
+@keyframes btn-spin{to{transform:rotate(360deg)}}
+th[data-pim-sort]{cursor:pointer;user-select:none}
+th[data-pim-sort]:hover{text-decoration:underline}
+.pim-filter-row th{padding-top:4px;padding-bottom:6px}
+.pim-filter{width:100%;min-width:70px;box-sizing:border-box;height:28px;padding:2px 6px;font:inherit;font-size:12px;color:inherit;background:var(--t1);border:1px solid var(--border);border-radius:6px}
+.result.pim-pending{opacity:.85;font-style:italic}
+tr.pim-row-pending td{background:color-mix(in srgb,var(--blue) 10%,transparent)}
 .btn:disabled:hover{background:var(--t173)!important;border-color:var(--t174)!important;color:var(--t103)!important}
 .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--t16);border-bottom:1px solid var(--border);padding:10px 24px}
 .current-entity{display:flex;align-items:center;gap:10px;min-width:220px}.current-entity strong{display:block;font-size:14px}.current-entity small{display:block;color:var(--muted);font-size:12px}
@@ -67,7 +77,7 @@ html[data-theme="light"]{color-scheme:light}
 .ondemand{padding:12px 22px;font-size:13px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .lookup-details{margin-top:16px}.lookup-details>summary{cursor:pointer;padding:14px 22px;font-weight:600}
 .inline-empty{padding:18px 22px;color:var(--muted);font-size:13px}
-.nav-label{display:block;padding:14px 18px 4px;font-size:11px;letter-spacing:.06em;color:#8fa0b8;font-weight:700}
+.nav-label{display:block;padding:14px 18px 4px;font-size:13px;letter-spacing:.06em;color:#fff;font-weight:800}
 @media(max-width:900px){.split.open{grid-template-columns:minmax(0,1fr)}.drawer{position:static;max-height:none}}
 #access-tab-body .event-table,.device-card .event-table,.drawer .event-table{table-layout:auto}
 #access-tab-body .event-table th,.device-card .event-table th,.drawer .event-table th{width:auto}
@@ -152,3 +162,48 @@ th .msel-th>summary.btn{height:22px!important;min-height:22px!important;padding:
 th .msel-th>summary::after{margin-left:4px}
 th .msel-th .msel-menu{position:fixed;z-index:60;text-transform:none;letter-spacing:0;font-weight:400}
 th .msel-th .msel-option{font-size:12px!important}
+/* Authorization log: click or press Enter on a header to sort in both themes. */
+th[data-authz-sort]{cursor:pointer;user-select:none}
+th[data-authz-sort]:hover{text-decoration:underline}
+
+/* Sidebar scroll + collapsible sections */
+.sidebar{height:100vh;height:100dvh;overflow:hidden}
+.sidebar>.brand,.sidebar>.sidebar-bottom{flex:0 0 auto}
+#navigation{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:0 -13px;padding:0 13px 8px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}
+#navigation::-webkit-scrollbar{width:8px}
+#navigation::-webkit-scrollbar-track{background:transparent}
+#navigation::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+#navigation::-webkit-scrollbar-thumb:hover{background-color:rgba(255,255,255,.4)}
+.nav-label[data-section]{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;user-select:none;border-radius:6px}
+.nav-label[data-section]:hover{color:#bfe0ff}
+.nav-label[data-section]:focus-visible{outline:2px solid #48adff;outline-offset:-2px}
+.nav-chevron{flex:0 0 auto;width:6px;height:6px;margin-right:4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform .15s ease;opacity:.8}
+.nav-label[aria-expanded="false"] .nav-chevron{transform:rotate(-45deg)}
+.nav-item.nav-collapsed{display:none}
+/* Authz page polish */
+#main.view-authz .heading-actions,#main.view-remediation .heading-actions,#main.is-denied .heading-actions{display:none}
+#authz-panel td.authz-time{white-space:nowrap;min-width:12.5em;font-variant-numeric:tabular-nums}
+#authz-panel th:first-child{white-space:nowrap}
+/* Friendly denial + locked nav items */
+.denied-card{max-width:720px}
+.denied-card h2{display:flex;align-items:center;gap:10px}
+.denied-card .card-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.denied-lock,.nav-item.nav-locked::after{display:inline-block;width:10px;height:8px;border:1.5px solid currentColor;border-radius:2px;position:relative;flex:0 0 auto}
+.denied-lock::before,.nav-item.nav-locked::after{content:''}
+.denied-lock::before{position:absolute;left:1px;top:-7px;width:5px;height:5px;border:1.5px solid currentColor;border-bottom:0;border-radius:4px 4px 0 0}
+.nav-item.nav-locked{opacity:.72}
+.nav-item.nav-locked::after{margin-left:auto;border-top-width:3px;opacity:.85}
+/* Denial panel: body text uses the normal readable text colour in both themes */
+#denied-panel .denied-card p,#denied-panel .denied-card p.muted{color:var(--t0)}
+.count:empty{display:none}#rem-run-form{padding:0 21px 18px;max-width:100%;overflow:hidden}#rem-run-confirm{flex-wrap:wrap;margin-top:0}#rem-run-confirm label{display:flex;align-items:center;gap:8px;flex:1 1 280px;min-width:0;font-size:11px}#rem-run-reason{flex:1 1 auto;min-width:0;width:100%;padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-size:11px}#rem-run-msg{font-size:10px}
+/* UI round 2: activate form spacing, PIM column menus (text filter + checkboxes), refused-request status, menu text box */
+.pim-form label{display:inline-flex;align-items:center;gap:14px;margin:0 28px 10px 0}
+.pim-form label input,.pim-form label select{margin:0}
+.pim-filter-row th{white-space:nowrap}
+th .pim-menu .msel-menu{max-height:320px;overflow-y:auto;min-width:220px}
+.pim-menu .pim-filter,.msel-menu .msel-text{display:block;width:100%;min-width:180px;height:28px;margin:0 0 8px;padding:2px 8px;font:inherit;font-size:12px;color:inherit;background:var(--t1);border:1px solid var(--border);border-radius:6px;box-sizing:border-box}
+.pim-status-error{color:var(--red);font-weight:600}
+/* Access report */
+.ar-search{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:6px 0 10px}.ar-search select,.ar-search input{height:32px;padding:2px 8px;font:inherit;color:inherit;background:var(--t1);border:1px solid var(--border);border-radius:6px}.ar-search input{min-width:240px}
+.ar-results{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0}.ar-results .btn small{margin-left:6px;opacity:.75}.ar-results .btn[aria-pressed="true"]{outline:2px solid var(--blue)}
+.pim-sources{margin:0 0 8px;font-size:12px;color:var(--muted)}.pim-sources a,.event-table td a{color:var(--blue);text-decoration:underline;text-underline-offset:2px}

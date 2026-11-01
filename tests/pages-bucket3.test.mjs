@@ -82,7 +82,7 @@ test('PIM for Groups elevation: eligible groups listed with an Activate link', (
   assert.match(html, /sg-e360-billing/); assert.doesNotMatch(html, /not-pim/);
   assert.match(html, /T\(2026-10-18T07:00:00Z\)/); assert.match(html, /Permanent/);
   assert.ok(html.includes(PIM_GROUP_ACTIVATE)); assert.match(PIM_GROUP_ACTIVATE, /aadgroup$/);
-  assert.match(read('public/account.js'), /groupEligibilityTable\(/);
+  assert.match(read('public/account.js'), /data-go="my-pim"/);
 });
 
 test('tabs, routes and errors are wired; deferred rows name their scope', async () => {

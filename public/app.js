@@ -6,9 +6,15 @@ import { pageSlice, pageInfo, pagerHtml, wirePager, DEFAULT_PAGE_SIZE } from './
 import { createDefenderEvents } from './defender.js';
 import { createBucket4Views } from './bucket4.js';
 import { createBucket5View, B5_VIEWS } from './bucket5.js';
+import { createAccessReportView } from './access-report.js';
 import { createLicenseView } from './licenses.js';
 import { createAccountView } from './account.js';
 import { createIntuneView } from './intune.js';
+import { createAuthzLogView, authzVisible } from './authz-log.js';
+import { createRemediationView } from './remediation-results.js';
+import { createPimView } from './pim.js';
+import { installButtonFeedback } from './btn-feedback.js';
+installButtonFeedback(document);
 import './error-lookup.js';
 import { createSignInLookup } from './signins.js';
 import { joinTypeLabel } from './device-links.js';
@@ -16,6 +22,8 @@ import { accountCardText } from './account-state.js';
 import { B3_TABS, b3Panel, b3Url, whatIfForm, whatIfResult, diagnosticsPanel } from './tab-tables.js';
 import { installColumnResize } from './col-resize.js';
 import { ACTIVITY_HEADERS, activityColumns, activityService, activityCategory, activityStatus, activityActor } from './activity-columns.js';
+import { installNavSections } from './nav-sections.js';
+import { missingRole, deniedHtml, VIEW_ROLES } from './access-denied.js';
 import { filterOptions, applyFilters, multiSelectHtml, wireMultiSelects, filtersIntoHeaders, installMultiSelectDismiss, remainingBucket, grantedBucket, REMAINING_BUCKETS, GRANTED_BUCKETS } from './multiselect.js';
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -55,11 +63,15 @@ let pageSize = DEFAULT_PAGE_SIZE;
 const signinPaging = { page: 0, size: DEFAULT_PAGE_SIZE };
 const presetRange = days => ({ from: new Date(Date.now() - days * 86400000).toISOString(), to: new Date().toISOString() });
 state.range = presetRange(7);
+const DENIAL_TEXT = 'Your Entity 360 roles do not include this feature.';
 async function api(url, options = {}) {
   const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(state.session ? { 'X-CSRF-Token': state.session.csrf } : {}), ...options.headers } });
   const data = await response.json();
   if (response.status === 401 && data.signin) signedOut(data.signin);
+  if (response.status === 403 && data.requiredRole) showDenied(data.requiredRole);
   if (!response.ok) throw new Error(data.error || 'Request failed.');
+  // A stale role denial (e.g. before PIM activation) clears once a request succeeds.
+  if (!$('#notice').hidden && $('#notice').textContent === DENIAL_TEXT) notice('');
   return data;
 }
 // Signed out (new session, restart, or expired token): go to Microsoft sign-in. Never fall back to demo data.
@@ -93,16 +105,22 @@ const bucket5 = createBucket5View({ api, esc, external: (u, l) => external(u, l)
 const bucket4 = createBucket4Views({ api, esc, fmtTime: t => fmtTime(t), resultBadge: v => resultBadge(v), external, emptyBox: t => emptyBox(t) });
 const defenderEvents = createDefenderEvents({ api, esc, external, entity: () => state.report?.entity || null, session: () => state.session, showEvidence });
 const deploymentView = createDeploymentView({ esc });
+const authzView = createAuthzLogView({ api, esc, emptyBox: t => emptyBox(t) });
+const accessReportView = createAccessReportView({ api, esc, emptyBox: t => emptyBox(t), toast: m => toast(m) });
+const remediationView = createRemediationView({ api, esc, emptyBox: t => emptyBox(t), canRun: () => authzVisible(state.session) && state.session?.mode === 'live' });
 function sessionUI() {
   const s = state.session;
   $('#viewer-name').textContent = s.viewer.name;
   $('#viewer-initials').textContent = initials(s.viewer.name);
   $('#mode-badge').textContent = s.mode === 'demo' ? 'DEMO DATA' : s.mode === 'signedout' ? 'SIGNED OUT' : s.mode === 'personal' ? 'PERSONAL · READ ONLY' : 'LIVE · READ ONLY';
   $('#mode-badge').classList.toggle('live', s.mode === 'live');
+  guardView('lockNav', lockNav);
 }
 // ---- UI v2: shared helpers ----
-const ENTITY_VIEWS = ['summary', 'signins', 'access', 'devices', 'activity'];
-const MY_VIEWS = ['my-summary', 'my-signins', 'my-access', 'my-device'];
+const ENTITY_VIEWS = ['summary', 'signins', 'access', 'devices', 'activity', 'pim'];
+const MY_VIEWS = ['my-summary', 'my-signins', 'my-access', 'my-device', 'my-pim'];
+const pimView = createPimView({ api, esc, emptyBox: t => emptyBox(t), root: () => $('#pim-page-body'), self: false, entity: () => state.entity });
+const myPimView = createPimView({ api, esc, emptyBox: t => emptyBox(t), root: () => $('#my-pim'), self: true, entity: () => null });
 const roleReason = role => { const s = state.session; return s?.rolesEnforced && !(s.appRoles || []).includes(role) ? `Requires ${role} role` : ''; };
 // Disable a button with a visible reason; enabling clears a reason we set.
 function setOff(el, reason) {
@@ -197,7 +215,7 @@ function clearReport() {
   for (const selector of ['#summary-cards', '#signin-table-rows', '#access-tab-body', '#device-cards', '#event-rows', '#coverage-list', '#evidence-content', '#entity-header']) $(selector).innerHTML = '';
   $('#signin-drawer').hidden = true; $('#loading').hidden = true; $('#refresh-button').disabled = false; notice('');
   renderTopbar();
-  signInLookup.reset(); accountView.reset(); intuneView.reset(); licenseView.reset(); billingView.reset(); applyView();
+  signInLookup.reset(); accountView.reset(); myPimView.reset(); pimView.reset(); intuneView.reset(); licenseView.reset(); billingView.reset(); applyView();
 }
 async function loadEntity(entity, { refresh = false } = {}) {
   const version = ++requestVersion;
@@ -474,11 +492,29 @@ function renderCoverage() {
   $('#coverage-list').innerHTML = r.sources.map(s => `<article class="coverage-card"><header><h3>${esc(s.name)}</h3>${resultBadge(s.status)}</header><dl><dt>Scope</dt><dd>${esc(s.scope)}</dd><dt>Window</dt><dd>${esc(s.coverage)}</dd><dt>Activity</dt><dd>${esc(s.count)} observed events</dd><dt>Freshness</dt><dd>${esc(s.freshness)}</dd></dl><p>${esc(s.note)}</p>${linkBtn(s.url, 'Open source portal')}</article>`).join('') + `<article class="coverage-card"><h3>Interpretation and limits</h3>${(r.notes || []).map(n => `<p>${esc(n)}</p>`).join('')}<p>Returned rows are not a guarantee of complete retention, collection, or historical configuration.</p></article>`;
 }
 // ---- Page switching ----
-const TITLES = { ...B5_VIEWS, emergency: ['Emergency access', 'Break-glass accounts: Conditional Access exclusions, last sign-in, roles and alert rules.'], logs: ['Logs', 'Saved KQL and workbooks for Log Analytics workspaces you can read.'], summary: ['Summary', 'Counts for the selected user. Each count opens the page that holds the rows.'], signins: ['Sign-ins', 'Select a sign-in to see why it succeeded, failed or was blocked.'], access: ['Access', 'Conditional Access, admin roles and groups for the selected user.'], devices: ['Devices', 'Intune devices for the selected user.'], activity: ['Azure activity', 'Azure control-plane activity, loaded only on demand.'], health: ['Health checks', 'Intune health run and which sources returned data.'], 'my-summary': ['My account', 'Your own account, read with your signed-in permissions.'], 'my-signins': ['My sign-ins', 'Your recent sign-ins and the policies Microsoft evaluated.'], 'my-access': ['My access', 'Licenses, groups, authentication methods and Conditional Access for you.'], 'my-device': ['My device', 'Your devices in Entra and Intune, and this computer.'], licenses: ['Licenses', 'Signed-in account first, authorized tenant inventory next.'], billing: ['Billing', 'Authorized billing evidence across connected contexts and scopes.'], deployment: ['Deployment/Onboarding', 'Every step used to bring each machine into Azure Arc, Intune and Defender.'], portals: ['Azure Portals', 'Every Azure and Microsoft 365 admin portal in one place. Links only; each portal checks your access.'], defender: ['Defender', 'Microsoft Defender workloads. Links only; each portal checks your access.'] };
+const TITLES = { ...B5_VIEWS, 'g-access-report': ['Access report', 'On-demand: who has access to a group, role or user, with PIM and last sign-in. CSV export; nothing stored.'], pim: ['PIM', 'Entra roles, PIM groups and Azure roles this user is eligible for or holds (read-only).'], 'my-pim': ['My PIM', 'Activate or deactivate your eligible Entra roles, PIM groups and Azure roles.'], emergency: ['Emergency access', 'Break-glass accounts: Conditional Access exclusions, last sign-in, roles and alert rules.'], logs: ['Logs', 'Saved KQL and workbooks for Log Analytics workspaces you can read.'], summary: ['Summary', 'Counts for the selected user. Each count opens the page that holds the rows.'], signins: ['Sign-ins', 'Select a sign-in to see why it succeeded, failed or was blocked.'], access: ['Access', 'Conditional Access, admin roles and groups for the selected user.'], devices: ['Devices', 'Intune devices for the selected user.'], activity: ['Azure activity', 'Azure control-plane activity, loaded only on demand.'], health: ['Health checks', 'Intune health run and which sources returned data.'], remediation: ['Remediation results', 'Network connectivity Remediation results per device, as reported to Intune.'], authz: ['Authorization log', 'Allow and deny decisions for Entity 360 features since the app last started.'], 'my-summary': ['My account', 'Your own account, read with your signed-in permissions.'], 'my-signins': ['My sign-ins', 'Your recent sign-ins and the policies Microsoft evaluated.'], 'my-access': ['My access', 'Licenses, groups, authentication methods and Conditional Access for you.'], 'my-device': ['My device', 'Your devices in Entra and Intune, and this computer.'], licenses: ['Licenses', 'Signed-in account first, authorized tenant inventory next.'], billing: ['Billing', 'Authorized billing evidence across connected contexts and scopes.'], deployment: ['Deployment/Onboarding', 'Every step used to bring each machine into Azure Arc, Intune and Defender.'], portals: ['Azure Portals', 'Every Azure and Microsoft 365 admin portal in one place. Links only; each portal checks your access.'], defender: ['Defender', 'Microsoft Defender workloads. Links only; each portal checks your access.'] };
+// A failing sub-view must never stop navigation (title, highlight and panel switch still happen).
+function guardView(name, fn) { try { fn(); } catch (error) { console.error(`[nav] ${name} failed`, error); } }
+const navSections = installNavSections($('#navigation'), (() => { try { return window.localStorage; } catch { return null; } })());
+
+// A 403 with requiredRole turns the current page into the friendly denial panel.
+// Background preloads can 403 too, so a denial is remembered per role and only redraws when it affects the open page.
+const deniedRoles = new Set();
+function showDenied(role) { if (deniedRoles.has(role)) return; deniedRoles.add(role); if (VIEW_ROLES[state.view] === role) applyView(); }
+function deniedRoleFor(v) { return missingRole(state.session, v) || (VIEW_ROLES[v] && deniedRoles.has(VIEW_ROLES[v]) ? VIEW_ROLES[v] : null); }
+// Pages the user lacks a role for stay clickable with a lock, so the denial panel explains how to get access. Authz stays hidden.
+function lockNav() {
+  $$('#navigation [data-view]').forEach(b => { const role = b.dataset.view === 'authz' ? null : missingRole(state.session, b.dataset.view); b.classList.toggle('nav-locked', Boolean(role)); if (role) b.title = `Requires ${role} role. Click to see how to get access.`; else b.removeAttribute('title'); });
+}
 function applyView() {
+  const authzOk = authzVisible(state.session);
+  $('#navigation [data-view="authz"]').hidden = !authzOk;
+  if (state.view === 'authz' && !authzOk) state.view = 'summary';
   const v = TITLES[state.view] ? state.view : 'summary'; state.view = v;
   const entityPage = ENTITY_VIEWS.includes(v), my = MY_VIEWS.includes(v);
-  const pages = { summary: '#summary-page', signins: '#signins-page', access: '#access-page', devices: '#devices-page', activity: '#activity-page', health: '#health-page', deployment: '#deployment-panel', portals: '#portals-panel', defender: '#defender-panel', emergency: '#emergency-panel', logs: '#logs-panel', billing: '#billing-panel', licenses: '#license-panel' };
+  const deniedRole = deniedRoleFor(v), av = deniedRole ? '' : v;
+  guardView('lockNav', lockNav);
+  const pages = { summary: '#summary-page', signins: '#signins-page', access: '#access-page', devices: '#devices-page', activity: '#activity-page', pim: '#pim-page', health: '#health-page', deployment: '#deployment-panel', portals: '#portals-panel', defender: '#defender-panel', emergency: '#emergency-panel', logs: '#logs-panel', billing: '#billing-panel', licenses: '#license-panel', authz: '#authz-panel', remediation: '#remediation-panel' };
   const showEntity = entityPage && state.report && !state.loading;
   for (const [key, sel] of Object.entries(pages)) $(sel).hidden = ENTITY_VIEWS.includes(key) ? !(showEntity && key === v) : key !== v;
   $('#intune-panel').hidden = v !== 'health';
@@ -487,51 +523,85 @@ function applyView() {
   MY_VIEWS.forEach(id => { $(`#${id}`).hidden = id !== v; });
   const s = state.session;
   $('#empty-state').hidden = !entityPage || Boolean(state.report) || state.loading;
+  // The investigate loader belongs to the Investigate pages; other views (authz, tools) never show it, even while the signed-in user loads in the background.
+  $('#loading').hidden = !(entityPage && state.loading);
   $('#empty-reason').textContent = s?.mode === 'signedout' ? 'You are signed out. Sign in with Microsoft, then pick a user.' : !$('#notice').hidden && $('#notice').classList.contains('error') ? 'The last load failed (see the message above). Pick the user again or choose Refresh.' : 'No user is selected. Use Change user at the top (press /) to pick a person, application or managed identity.';
   setOff($('#range-button'), entityPage || v === 'health' ? '' : 'The date range applies to the Investigate pages');
   setOff($('#focus-search'), s?.mode === 'signedout' ? 'Sign in first' : '');
-  signInLookup.setActive(v === 'signins');
-  accountView.setActive(my);
-  intuneView.setActive(v === 'health');
-  licenseView.setActive(v === 'licenses');
-  billingView.setActive(v === 'billing');
-  portalsView.setActive(v === 'portals');
-  defenderView.setActive(v === 'defender');
-  defenderEvents.setActive(v === 'defender');
-  bucket4.setEmergency(v === 'emergency');
-  bucket4.setLogs(v === 'logs');
-  bucket5.setActive(v);
+  guardView('signInLookup.setActive', () => signInLookup.setActive(av === 'signins'));
+  // My PIM is its own page: no generic My account toolbar and no account report run.
+  $('#account-panel > .account-controls').hidden = v === 'my-pim';
+  guardView('accountView.setActive', () => accountView.setActive(my && v !== 'my-pim' && !deniedRole));
+  guardView('intuneView.setActive', () => intuneView.setActive(av === 'health'));
+  guardView('licenseView.setActive', () => licenseView.setActive(av === 'licenses'));
+  guardView('billingView.setActive', () => billingView.setActive(av === 'billing'));
+  guardView('portalsView.setActive', () => portalsView.setActive(av === 'portals'));
+  guardView('defenderView.setActive', () => defenderView.setActive(av === 'defender'));
+  guardView('defenderEvents.setActive', () => defenderEvents.setActive(av === 'defender'));
+  guardView('bucket4.setEmergency', () => bucket4.setEmergency(av === 'emergency'));
+  guardView('bucket4.setLogs', () => bucket4.setLogs(av === 'logs'));
+  guardView('bucket5.setActive', () => bucket5.setActive(av));
   // Partial results: only the tab whose data is affected, listing only that tab's sources (Defender shows its own).
   const banner = state.report && !state.loading && (entityPage || v === 'health') ? bannerFor(state.report, v) : '';
   $('#partial-banner').textContent = banner; $('#partial-banner').hidden = !banner;
-  deploymentView.setActive(v === 'deployment');
-  $('#main').className = `view-${v}`;
+  guardView('deploymentView.setActive', () => deploymentView.setActive(av === 'deployment'));
+  guardView('authzView.setActive', () => authzView.setActive(av === 'authz'));
+  guardView('accessReportView.setActive', () => accessReportView.setActive(av === 'g-access-report'));
+  guardView('pimView.setActive', () => pimView.setActive(state.view === 'pim' && Boolean(state.entity)));
+  guardView('myPimView.setActive', () => myPimView.setActive(state.view === 'my-pim'));
+  guardView('remediationView.setActive', () => remediationView.setActive(av === 'remediation'));
+  guardView('navSections.expandFor', () => navSections.expandFor(state.view));
+  $('#denied-panel').hidden = !deniedRole;
+  if (deniedRole) {
+    $$('#main > section').forEach(el => { el.hidden = el.id !== 'denied-panel'; });
+    $('#empty-state').hidden = true; $('#partial-banner').hidden = true;
+    $('#denied-panel').innerHTML = deniedHtml(deniedRole);
+    $$('#denied-panel [data-denied-signin]').forEach(b => { b.onclick = () => location.assign('/auth/login'); });
+  }
+  $('#main').className = `view-${v}${deniedRole ? ' is-denied' : ''}`;
   $('#page-title').textContent = TITLES[v][0];
   $('#page-subtitle').textContent = TITLES[v][1];
-  $('#breadcrumb').textContent = (my ? 'MY ACCOUNT' : entityPage || v === 'health' ? 'INVESTIGATE' : 'MORE TOOLS');
+  $('#breadcrumb').textContent = (my ? 'MY ACCOUNT' : entityPage || v === 'health' || v === 'remediation' || v === 'authz' ? 'INVESTIGATE' : 'MORE TOOLS');
   $$('#navigation [data-view]').forEach(b => { b.classList.toggle('active', b.dataset.view === v); if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   if (v === 'activity') renderActivity();
   applyGates();
   syncHeaderExport();
-  autoRunView();
+  if (!deniedRole) autoRunView();
 }
 // The header Export button exports whatever the current page shows.
-const exportTargets = { activity: '#activity-export-proxy', 'my-summary': '#account-export', 'my-signins': '#account-export', 'my-access': '#account-export', 'my-device': '#account-export', health: '#intune-export', licenses: '#license-export', billing: '#billing-export', signins: '#signin-export-proxy' };
-function exportReason() {
-  const v = state.view;
-  if (v === 'activity') return filteredEvents().length ? '' : 'No activity events to export';
-  if (v === 'signins') return signIns().length ? '' : 'No sign-ins to export';
-  const t = exportTargets[v] && $(exportTargets[v]);
-  if (!t) return 'Nothing on this page to export';
-  return t.disabled ? 'Run this page first; there is nothing to export yet' : '';
-}
-function syncHeaderExport() { const reason = exportReason(), el = $('#header-export'); if (el.disabled !== Boolean(reason) || (reason && el.title !== reason)) setOff(el, reason); }
+const exportTargets = { activity: '#activity-export-proxy', 'my-summary': '#account-export', 'my-signins': '#account-export', 'my-access': '#account-export', 'my-device': '#account-export', health: '#intune-export', licenses: '#license-export', billing: '#billing-export', authz: '#authz-export', remediation: '#rem-export', 'g-access-report': '#ar-export', signins: '#signin-export-proxy' };
+// Export is always enabled. A page with its own export uses it; any other page exports the table it shows (the rows
+// left after its filters, in the browser, nothing stored). With nothing to export, the click says so.
+const EXPORT_TITLE = 'Export what this page shows';
+function syncHeaderExport() { const el = $('#header-export'); if (el.disabled) setOff(el, ''); if (el.title !== EXPORT_TITLE) el.title = EXPORT_TITLE; }
+const safe = fn => { try { return fn(); } catch { return []; } };
 $('#header-export').onclick = () => {
   const v = state.view;
-  if (v === 'activity') return exportCsv(filteredEvents(), 'activity');
-  if (v === 'signins') return exportCsv(signIns(), 'signins');
-  const t = exportTargets[v] && $(exportTargets[v]); if (t && !t.disabled) t.click();
+  if (v === 'activity' && safe(filteredEvents).length) return exportCsv(filteredEvents(), 'activity');
+  if (v === 'signins' && safe(signIns).length) return exportCsv(signIns(), 'signins');
+  const t = exportTargets[v] && $(exportTargets[v]); if (t && !t.disabled) return t.click();
+  const table = shownTable(); if (table) return exportTableCsv(table, v);
+  toast('Nothing on this page to export yet. Load or run the page first.');
 };
+// First visible table on the page that has data rows (a single-cell row is an empty-state message, not data).
+function shownTable() {
+  return [...document.querySelectorAll('#main table')].find(t => t.getClientRects().length && dataRows(t).length) || null;
+}
+const dataRows = t => [...t.querySelectorAll('tbody tr')].filter(tr => tr.cells.length > 1 && tr.getClientRects().length);
+function headerText(th) {
+  if (th.dataset.label) return th.dataset.label;
+  const c = th.cloneNode(true); c.querySelectorAll('.msel, details, .sort-mark, .col-resizer, button, input, select').forEach(n => n.remove());
+  return c.textContent.replace(/\s+/g, ' ').trim();
+}
+function exportTableCsv(table, view) {
+  const cell = value => { let v = String(value ?? ''); if (/^[=+@\-\t\r\n]/.test(v)) v = `'${v}`; return `"${v.replaceAll('"', '""')}"`; };
+  const head = [...(table.querySelector('thead tr')?.cells || [])].map(headerText);
+  const body = dataRows(table).map(tr => [...tr.cells].map(td => td.innerText?.replace(/\s+/g, ' ').trim() ?? td.textContent.trim()));
+  const rows = head.length ? [head, ...body] : body;
+  const blob = new Blob(['﻿' + rows.map(row => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob), anchor = document.createElement('a'); anchor.href = url; anchor.download = `entity-360-${view}-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`Exported ${body.length} rows`);
+}
 new MutationObserver(records => { if (records.some(r => r.target.id !== 'header-export')) syncHeaderExport(); }).observe(document.querySelector('#main'), { subtree: true, attributes: true, attributeFilter: ['disabled'] });
 function exportCsv(events, kind) {
   // Guard against spreadsheet formula execution when exporting untrusted source fields.
@@ -542,7 +612,7 @@ function exportCsv(events, kind) {
 }
 // Live sign-in: My account and Health checks run their default query the first time they are opened.
 function autoRunView(forced) {
-  const key = forced || (MY_VIEWS.includes(state.view) ? 'account' : state.view === 'health' ? 'intune' : state.view);
+  const key = forced || (MY_VIEWS.includes(state.view) && state.view !== 'my-pim' ? 'account' : state.view === 'health' ? 'intune' : state.view);
   const views = { account: accountView, intune: intuneView, licenses: licenseView, billing: billingView };
   if (state.session?.mode !== 'live' || !views[key] || state.autoRan.has(key)) return;
   const gate = { account: 'account-run', intune: 'intune-run', licenses: 'license-run', billing: 'billing-run' }[key];
@@ -630,7 +700,7 @@ installMultiSelectDismiss(document, state.fx);
 $('#activity-page-size').onchange = () => { pageSize = Number($('#activity-page-size').value) || DEFAULT_PAGE_SIZE; state.page = 0; renderTimeline(); };
 $('#previous-page').onclick = () => { state.page--; renderTimeline(); };
 $('#next-page').onclick = () => { state.page++; renderTimeline(); };
-$('#refresh-button').onclick = () => state.view === 'deployment' ? deploymentView.refresh() : state.view === 'health' && state.session?.mode === 'live' && !state.entity ? intuneView.run() : state.view === 'billing' ? billingView.run() : state.view === 'licenses' ? licenseView.run() : MY_VIEWS.includes(state.view) ? accountView.run() : state.entity ? loadEntity(state.entity, { refresh: true }) : $('#entity-search').focus();
+$('#refresh-button').onclick = () => state.view === 'my-pim' ? myPimView.refresh() : state.view === 'pim' ? pimView.refresh() : state.view === 'deployment' ? deploymentView.refresh() : state.view === 'health' && state.session?.mode === 'live' && !state.entity ? intuneView.run() : state.view === 'billing' ? billingView.run() : state.view === 'licenses' ? licenseView.run() : MY_VIEWS.includes(state.view) ? accountView.run() : state.entity ? loadEntity(state.entity, { refresh: true }) : $('#entity-search').focus();
 $('#range-button').onclick = () => { $('#from-date').value = state.range.from.slice(0, 16); $('#to-date').value = state.range.to.slice(0, 16); $('#range-error').textContent = ''; $('#range-dialog').showModal(); };
 function setRange(range, days = null) { state.range = range; state.days = days; $('#range-label').textContent = days ? days === 1 ? 'Last 24 hours' : `Last ${days} days` : `${range.from.slice(5, 10)} – ${range.to.slice(5, 10)}`; $('#range-button').title = `${range.from} – ${range.to}`; $('#range-dialog').close(); if (state.entity) loadEntity(state.entity); }
 $$('[data-days]').forEach(b => b.onclick = () => setRange(presetRange(Number(b.dataset.days)), Number(b.dataset.days)));
@@ -640,13 +710,13 @@ $$('.close-dialog').forEach(b => b.onclick = () => b.closest('dialog').close());
 function connectionUI() {
   const s = state.session;
   $('#connection-title').textContent = ['live', 'personal'].includes(s.mode) ? 'Microsoft connected' : 'Connect Microsoft';
-  $('#connection-content').innerHTML = `<div class="connection-box connection-signed"><p class="connection-note">${['live', 'personal'].includes(s.mode) ? `Signed in as ${esc(s.viewer.email)}. Each source checks your delegated permissions. Access tokens stay in server memory.` : 'Demo mode is ready to explore. Connect your tenant for live, read-only evidence under your Microsoft identity.'}</p></div><div class="connection-box"><h3>${s.configured ? 'Microsoft account' : 'One-time tenant setup'}</h3><p>${s.configured ? (s.confidentialSignIn ? 'Sign in with your Microsoft work account. Azure connects automatically when consent allows; otherwise Connect Azure asks Microsoft for consent once.' : 'Sign in using a Microsoft verification code. Your organization’s consent and sign-in policies apply.') : 'Create an Entra public-client app registration, grant the required read permissions, and set the tenant and client IDs in the local .env file. No client secret is needed.'}</p><div class="conn-actions">${s.configured ? '<button id="microsoft-login" class="btn">Sign in with Microsoft ↗</button>' : '<a class="btn" href="/setup.html" target="_blank" rel="noopener">Open setup guide ↗</a>'}${['live', 'personal'].includes(s.mode) ? `${s.mode === 'live' ? `<button id="azure-login" class="btn">${s.azureConnected ? 'Renew Azure access' : 'Connect Azure'}</button>` : ''}<button id="logout-button" class="btn">Sign out all connections</button>` : ''}</div></div><div id="login-status" role="status"></div><div class="connection-box"><h3>Explore demo permissions</h3><p>Switch fictional viewers to see inaccessible sources disappear. This affects demo data only.</p><label for="demo-profile">Demo viewer</label><select id="demo-profile"><option value="analyst" ${s.profile === 'analyst' ? 'selected' : ''}>Morgan Lee · Security analyst</option><option value="reader" ${s.profile === 'reader' ? 'selected' : ''}>Casey Rivera · Directory reader</option></select><button id="demo-button" class="btn">${s.mode === 'demo' ? 'Apply demo viewer' : 'Switch to demo'}</button></div><p class="connection-note">${s.betaEnabled ? 'Optional Graph beta sign-ins are enabled.' : 'Stable Graph APIs are used. Workload and noninteractive sign-ins require opting into the beta connector.'}</p>`;
+  $('#connection-content').innerHTML = `<div class="connection-box connection-signed"><p class="connection-note">${['live', 'personal'].includes(s.mode) ? `Signed in as ${esc(s.viewer.email)}. Each source checks your delegated permissions. Access tokens stay in server memory.` : 'Demo mode is ready to explore. Connect your tenant for live, read-only evidence under your Microsoft identity.'}</p></div><div class="connection-box"><h3>${s.configured ? 'Microsoft account' : 'One-time tenant setup'}</h3><p>${s.configured ? (s.confidentialSignIn ? 'Sign in with your Microsoft work account. Azure connects automatically when consent allows; otherwise Connect Azure asks Microsoft for consent once.' : 'Sign in using a Microsoft verification code. Your organization’s consent and sign-in policies apply.') : 'Create an Entra public-client app registration, grant the required read permissions, and set the tenant and client IDs in the local .env file. No client secret is needed.'}</p><div class="conn-actions">${!s.configured ? '<a class="btn" href="/setup.html" target="_blank" rel="noopener">Open setup guide ↗</a>' : ['live', 'personal'].includes(s.mode) ? `${s.mode === 'live' && !s.azureConnected ? '<button id="azure-login" class="btn">Connect Azure</button>' : ''}<button id="logout-button" class="btn">Sign out all connections</button>` : '<button id="microsoft-login" class="btn">Sign in with Microsoft ↗</button>'}</div></div><div id="login-status" role="status"></div><div class="connection-box"><h3>Explore demo permissions</h3><p>Switch fictional viewers to see inaccessible sources disappear. This affects demo data only.</p><label for="demo-profile">Demo viewer</label><select id="demo-profile"><option value="analyst" ${s.profile === 'analyst' ? 'selected' : ''}>Morgan Lee · Security analyst</option><option value="reader" ${s.profile === 'reader' ? 'selected' : ''}>Casey Rivera · Directory reader</option></select><button id="demo-button" class="btn">${s.mode === 'demo' ? 'Apply demo viewer' : 'Switch to demo'}</button></div><p class="connection-note">${s.betaEnabled ? 'Optional Graph beta sign-ins are enabled.' : 'Stable Graph APIs are used. Workload and noninteractive sign-ins require opting into the beta connector.'}</p>`;
   $('#connection-content').firstElementChild.insertAdjacentHTML('afterend', `<div class="connection-box"><h3>Account and tenant boundary</h3><label>Organization tenant ID<input id="connection-tenant" type="text" value="${esc(s.activeTenant && s.mode === 'live' ? s.activeTenant : s.defaultTenant || '')}" placeholder="Tenant GUID"></label><p>${s.multiTenantEnabled ? 'Multiple organizations enabled; each needs independent sign-in and consent.' : 'Default tenant only. Enable ALLOW_MULTI_TENANT with a compatible app registration for other organizations.'}</p>${s.connections.length ? '<label>Connected account / tenant<select id="connection-switch">'+s.connections.map(c => '<option value="'+esc(c.key)+'" '+(c.key === s.activeConnection ? 'selected' : '')+'>'+esc(c.email)+' · '+esc(c.type === 'personal' ? 'Personal Microsoft account' : c.tenant)+'</option>').join('')+'</select></label><button id="switch-connection" class="btn">Use selected connection</button>' : ''}</div>`);
   if ($('#microsoft-login')) $('#microsoft-login').onclick = () => s.confidentialSignIn ? location.assign('/auth/login') : startLogin('graph', { tenantId: $('#connection-tenant').value });
   if ($('#switch-connection')) $('#switch-connection').onclick = async () => { try { state.session = await api('/api/connections/switch', { method: 'POST', body: JSON.stringify({ key: $('#connection-switch').value }) }); clearReport(); sessionUI(); connectionUI(); $('#connection-dialog').close(); state.view = 'licenses'; applyView(); } catch(e) { toast(e.message); } };
   if ($('#azure-login')) $('#azure-login').onclick = () => startLogin('azure');
-  if (s.mode === 'live' && s.logsConfigured) {
-    $('#azure-login').insertAdjacentHTML('afterend', `<button id="logs-login" class="btn">${s.logsConnected ? 'Renew log access' : 'Connect workspace logs'}</button>`);
+  if (s.mode === 'live' && s.logsConfigured && !s.logsConnected) {
+    $('#logout-button').insertAdjacentHTML('beforebegin', '<button id="logs-login" class="btn">Connect workspace logs</button>');
     $('#logs-login').onclick = () => startLogin('logs');
   }
   if ($('#logout-button')) $('#logout-button').onclick = async () => { try { clearTimeout(pollTimer); await api('/api/logout', { method: 'POST', body: '{}' }); state.session = await api('/api/session'); clearReport(); sessionUI(); connectionUI(); toast('Microsoft session removed from this app'); } catch (e) { toast(e.message); } };

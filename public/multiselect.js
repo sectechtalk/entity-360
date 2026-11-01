@@ -77,6 +77,24 @@ export function markSortedHeader(root) {
   th.insertAdjacentHTML('beforeend', `<span class="sort-mark"> ${sortArrow(d.dataset.mselSorted)}</span>`);
   return th;
 }
+// The checkbox values and their visible labels in one menu.
+export function optionLabels(d) {
+  return [...d.querySelectorAll('label.msel-option')].map(l => ({ value: l.querySelector('input[type=checkbox]')?.value ?? '', label: l.textContent.trim() }));
+}
+// Puts the text box after the sort buttons (or first when there are none). Reuses one that is already there.
+export function attachTextFilter(d, value = '') {
+  let input = d.querySelector('input[data-msel-text]');
+  if (!input) {
+    const menu = d.querySelector('.msel-menu');
+    input = d.ownerDocument.createElement('input');
+    Object.assign(input, { type: 'search', placeholder: 'Type to filter', autocomplete: 'off', className: 'msel-text' });
+    input.setAttribute('data-msel-text', ''); input.setAttribute('aria-label', `Filter ${d.dataset.mselHeader || ''} values by text`.replace(/\s+/g, ' '));
+    const after = menu.querySelector('.msel-sort');
+    menu.insertBefore(input, after ? after.nextSibling : menu.firstChild);
+  }
+  input.value = value;
+  return input;
+}
 // Wires every [data-msel] under root. store: { excluded: {key:Set}, open: key|null }. onChange re-renders.
 export function wireMultiSelects(root, store, onChange) {
   root.querySelectorAll('[data-msel]').forEach(d => {
@@ -84,14 +102,29 @@ export function wireMultiSelects(root, store, onChange) {
     const values = () => [...d.querySelectorAll('input[type=checkbox]')].map(i => i.value);
     const commit = set => { store.excluded[key] = set; store.open = key; onChange(key); };
     d.addEventListener('toggle', () => { if (d.open) { store.open = key; root.ownerDocument.querySelectorAll('[data-msel][open]').forEach(o => { if (o !== d) o.open = false; }); } else if (store.open === key) store.open = null; });
+    // Text filter in the same menu, under the sort buttons: typing keeps only the values that contain the text checked.
+    // Ticking a box, Select all or Clear goes back to plain checkbox filtering.
+    store.text ||= {};
+    const text = attachTextFilter(d, store.text[key] || '');
+    let timer = null;
+    text.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const t = text.value.trim().toLowerCase(), labels = optionLabels(d);
+        store.text[key] = text.value; store.focusText = key;
+        commit(new Set(t ? labels.filter(o => !o.label.toLowerCase().includes(t)).map(o => o.value) : []));
+      }, 250);
+    });
+    if (store.focusText === key && d.open) setTimeout(() => { if (!text.isConnected) return; text.focus(); text.setSelectionRange?.(text.value.length, text.value.length); }, 0);
+    const plain = () => { delete store.text[key]; store.focusText = null; };
     d.querySelectorAll('input[type=checkbox]').forEach(i => i.addEventListener('change', () => {
       const set = new Set(store.excluded[key] || []);
       if (i.checked) set.delete(i.value); else set.add(i.value);
-      commit(set);
+      plain(); commit(set);
     }));
     d.querySelectorAll('[data-msel-sort]').forEach(b => b.addEventListener('click', () => { store.sort = { key, dir: b.dataset.mselSort }; store.open = key; onChange(key); }));
-    d.querySelector('[data-msel-all]').addEventListener('click', () => commit(new Set()));
-    d.querySelector('[data-msel-none]').addEventListener('click', () => commit(new Set(values())));
+    d.querySelector('[data-msel-all]').addEventListener('click', () => { plain(); commit(new Set()); });
+    d.querySelector('[data-msel-none]').addEventListener('click', () => { plain(); commit(new Set(values())); });
   });
   markSortedHeader(root);
 }

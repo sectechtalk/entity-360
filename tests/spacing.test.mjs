@@ -15,7 +15,7 @@ test('connection panel: signed-in note in its own card above the tenant boundary
   const app = await r('app.js'), css = await r('styles.css');
   assert.match(app, /<div class="connection-box connection-signed"><p class="connection-note">/);
   assert.match(app, /firstElementChild\.insertAdjacentHTML\('afterend', `<div class="connection-box"><h3>Account and tenant boundary/);
-  assert.match(app, /<div class="conn-actions">\$\{s\.configured \? '<button id="microsoft-login"/);
+  assert.match(app, /<div class="conn-actions">\$\{!s\.configured \? '<a class="btn" href="\/setup\.html"/);
   assert.match(css, /\.conn-actions\{display:flex;flex-wrap:wrap;gap:12px 12px/);
   assert.match(css, /#switch-connection\{margin-top:14px!important\}/);
   assert.match(css, /\.connection-box label>input,\.connection-box label>select\{display:block;margin-top:8px\}/);

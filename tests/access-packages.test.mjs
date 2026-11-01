@@ -9,9 +9,9 @@ const fakeApi = (fail = {}) => ({
   async pages(url) {
     this.calls.push(url);
     if (url.includes('/assignmentRequests')) { if (fail.requests) throw Object.assign(new Error('x'), { status: 403 }); return { rows: [
-      { id: 'q1', requestType: 'userAdd', state: 'pendingApproval', createdDateTime: '2026-10-26T10:00:00Z', accessPackage: { displayName: 'Other' }, target: { objectId: U } },
-      { id: 'q2', requestType: 'adminAdd', state: 'delivered', target: { objectId: U } },
-      { id: 'q3', requestType: 'userAdd', state: 'pendingApproval', target: { objectId: 'someone-else' } }] }; }
+      { id: 'q1', requestType: 'userAdd', state: 'pendingApproval', createdDateTime: '2026-10-26T10:00:00Z', accessPackage: { displayName: 'Other' }, requestor: { objectId: U } },
+      { id: 'q2', requestType: 'adminAdd', state: 'delivered', requestor: { objectId: U } },
+      { id: 'q3', requestType: 'userAdd', state: 'pendingApproval', requestor: { objectId: 'someone-else' } }] }; }
     return { rows: [
       { id: 'a1', state: 'delivered', status: 'Delivered', accessPackage: { id: 'p1', displayName: 'e360 Test Package' }, assignmentPolicy: { displayName: 'Admin direct' }, schedule: { startDateTime: '2026-10-26T20:00:00Z', expiration: { endDateTime: '2027-01-24T20:00:00Z' } } },
       { id: 'a2', state: 'expired', accessPackage: { id: 'p2' } }] };
