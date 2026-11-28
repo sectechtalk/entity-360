@@ -2,6 +2,7 @@
 process.env.DEMO_MODE ??= 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { freePort } from './free-port.mjs';
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
 process.env.ENTRA_TENANT_ID = TENANT;
@@ -36,7 +37,7 @@ async function boot(t, port, silentOk) {
 }
 
 test('silent ARM token after confidential sign-in connects Azure with no click', async t => {
-  const { calls, get } = await boot(t, 3671, true);
+  const { calls, get } = await boot(t, await freePort(), true);
   const s = await (await get('/api/session')).json();
   assert.equal(s.mode, 'live');
   assert.equal(s.azureConnected, true);
@@ -46,7 +47,7 @@ test('silent ARM token after confidential sign-in connects Azure with no click',
 });
 
 test('when silent needs consent, Connect Azure redirects with PKCE for the ARM scope and returns connected', async t => {
-  const { calls, get, post, state } = await boot(t, 3672, false);
+  const { calls, get, post, state } = await boot(t, await freePort(), false);
   assert.equal((await (await get('/api/session')).json()).azureConnected, false);
   const start = await (await post('/api/auth/start', { resource: 'azure' })).json();
   assert.deepEqual(start, { status: 'redirect', url: '/auth/connect?resource=azure' });

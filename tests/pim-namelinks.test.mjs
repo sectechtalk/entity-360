@@ -42,8 +42,8 @@ test('Sources: only the row types shown; My roles links only on My PIM', () => {
   assert.equal(sourcesHtml([], true, esc), '');
 });
 
-test('nav section labels are white and one weight bolder', async () => {
+test('nav section labels are white and semibold (360 standard: weights stop at 600)', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
-  assert.match(css, /\.nav-label\{[^}]*color:#fff;font-weight:800\}/);
+  assert.match(css, /\.nav-label\{[^}]*color:#fff;font-weight:600\}/);
 });

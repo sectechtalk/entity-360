@@ -117,7 +117,7 @@ test('withActions offers no action when not self', () => {
 test('UI: table columns, action buttons only on self, durations capped at policy max, poll settles', () => {
   const rows = [{ type: 'Group', name: 'sg-e360-admin', scope: G, scopeLabel: 'Group member', state: 'Eligible', start: '2026-10-01T00:00:00Z', end: null, action: 'activate', key: 'k' }];
   const mine = pimTableHtml(rows, { esc, self: true });
-  for (const c of ['Type', 'Name', 'Scope', 'State', 'Eligibility', 'Start', 'End', 'Action']) assert.match(mine, new RegExp(`data-pim-sort="${c.toLowerCase()}"[^>]*>${c}<`));
+  for (const c of ['Type', 'Name', 'Scope', 'State', 'Eligibility', 'Start', 'End', 'Action']) assert.match(mine, new RegExp(`data-pim-sort="${c.toLowerCase()}"[^>]*><button type="button" class="sort-button">${c}<`));
   assert.match(mine, /class="btn" data-pim-action="activate"/);
   const other = pimTableHtml(rows, { esc, self: false });
   assert.doesNotMatch(other, /data-pim-action|data-pim-sort="action"/);
@@ -131,7 +131,7 @@ test('UI: table columns, action buttons only on self, durations capped at policy
 
 test('wiring: nav items, routes gated by E360.Reader, server routes present, My access points to the PIM page', () => {
   const html = read('public/index.html'), app = read('public/app.js'), srv = read('server/index.mjs'), acct = read('public/account.js');
-  assert.match(html, /data-view="pim"[^>]*>.*PIM<\/button>/); assert.match(html, /data-view="my-pim"[^>]*>.*My PIM<\/button>/); assert.match(app, /'my-pim': \['My PIM',/);
+  assert.match(html, /data-view="pim"[^>]*>.*PIM<\/a>/); assert.match(html, /data-view="my-pim"[^>]*>.*My PIM<\/a>/); assert.match(app, /'my-pim': \['My PIM',/);
   assert.match(html, /id="pim-page"/); assert.match(html, /id="my-pim"/);
   assert.equal(roleForPath('/api/me/pim'), null); assert.equal(roleForPath('/api/me/pim/request'), null); assert.equal(roleForPath('/api/me/pim/policy'), null); assert.equal(roleForPath('/api/investigate/pim'), 'E360.Reader');
   assert.equal(VIEW_ROLES['my-pim'], undefined, 'My PIM needs no app role'); assert.equal(VIEW_ROLES.pim, 'E360.Reader');

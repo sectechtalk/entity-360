@@ -19,10 +19,12 @@ export function checkReason(raw) {
   return reason;
 }
 
-// In memory with a bound, like the authorization decision log, and one JSON line per record on stdout so the
-// Container Apps console log keeps it after a restart. No tokens.
+// In memory with a bound, like the authorization decision log. Each record also goes to the audit trail: the server
+// passes `record` (server/audit-trail.mjs), which writes the E360_AUDIT stdout line and the durable copy. Without it
+// (tests, tools) the line goes to `write` only. No tokens.
+const RUN_FIELDS = ['id', 'time', 'requester', 'reason', 'device', 'managedDeviceId', 'user', 'scriptId', 'result', 'error'];
 export class RunAudit {
-  constructor({ limit = 500, write = line => process.stdout.write(line + '\n') } = {}) { this.limit = limit; this.write = write; this.rows = []; }
+  constructor({ limit = 500, write = line => process.stdout.write(line + '\n'), record = null } = {}) { this.limit = limit; this.write = write; this.record = record; this.rows = []; }
   add(fields) {
     const row = {
       id: randomUUID(), time: new Date().toISOString(),
@@ -32,8 +34,14 @@ export class RunAudit {
     };
     this.rows.push(row);
     if (this.rows.length > this.limit) this.rows.shift();
-    try { this.write(AUDIT_PREFIX + JSON.stringify({ type: 'remediation-run', ...row })); } catch { /* logging must not fail the request */ }
+    try { if (this.record) this.record({ type: 'remediation-run', ...row }); else this.write(AUDIT_PREFIX + JSON.stringify({ type: 'remediation-run', ...row })); } catch { /* logging must not fail the request */ }
     return row;
+  }
+  // Merge records read back from the durable audit trail after a restart; a record already in memory is kept once.
+  restore(records = []) {
+    const seen = new Set(this.rows.map(r => r.id));
+    const back = records.filter(r => r?.id && r.time && !seen.has(r.id)).map(r => Object.fromEntries(RUN_FIELDS.map(k => [k, r[k] ?? null])));
+    this.rows = [...back, ...this.rows].sort((a, b) => String(a.time).localeCompare(String(b.time))).slice(-this.limit);
   }
   list(n = 200) { return this.rows.slice(-n).reverse(); }
 }

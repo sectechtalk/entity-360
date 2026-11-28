@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { lookupOptions, signInLookup, demoSignInLookup, normalizeSignIn, groupSignIns } from '../server/signins.mjs';
 import { createApp } from '../server/index.mjs';
+import { freePort } from './free-port.mjs';
 
 const now = Date.parse('2026-10-10T12:00:00Z');
 const user = 'alex.morgan@contoso.example';
@@ -80,7 +81,7 @@ test('UPN apostrophes are escaped in OData; the endpoint is fixed', async () => 
   assert.match(captured.searchParams.get('$filter'), /userPrincipalName eq 'o''brien@example.test'/);
 });
 test('sign-in lookup API enforces CSRF and validates lookback', async t => {
-  const port = 3620, app = createApp({ port }), server = app.listen(port, '127.0.0.1');
+  const port = await freePort(), app = createApp({ port }), server = app.listen(port, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
   const base = `http://127.0.0.1:${port}`;

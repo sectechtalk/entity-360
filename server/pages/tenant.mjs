@@ -1,4 +1,4 @@
-// TENANT section: Settings, Domains, Roles, Hybrid.
+// TENANT section: Settings, Domains, Roles. Directory sync moved to ON-PREM AD (pages/onprem.mjs).
 import { part, yesNo, day } from '../bucket5.mjs';
 const E = 'https://entra.microsoft.com/#view/';
 
@@ -62,20 +62,8 @@ async function roles(api, { notes }) {
   ];
 }
 
-async function hybrid(api, { notes }) {
-  const org = (await api.request('/v1.0/organization?$select=onPremisesSyncEnabled,onPremisesLastSyncDateTime,onPremisesLastPasswordSyncDateTime')).value?.[0] || {};
-  const synced = await part(notes, 'Synced user count', () => api.request('/v1.0/users/$count?$filter=onPremisesSyncEnabled eq true').then(n => String(n?.value ?? n)));
-  notes.push('Password hash sync, pass-through and seamless SSO feature flags need OnPremDirectorySynchronization.Read.All, which is not consented. Connect Health and Kerberos objects have no Graph read.');
-  const ago = t => t ? `${Math.round((Date.now() - Date.parse(t)) / 36e5)} hours ago` : '';
-  return [{ title: 'Directory synchronization', columns: ['Setting', 'Value'], link: `${E}Microsoft_AAD_IAM/DirectoriesADConnectBlade`, rows: [
-    ['Sync enabled', yesNo(org.onPremisesSyncEnabled ?? false)], ['Last sync', org.onPremisesLastSyncDateTime ? `${day(org.onPremisesLastSyncDateTime)} (${ago(org.onPremisesLastSyncDateTime)})` : 'Never'],
-    ['Last password hash sync', org.onPremisesLastPasswordSyncDateTime ? `${day(org.onPremisesLastPasswordSyncDateTime)} (${ago(org.onPremisesLastPasswordSyncDateTime)})` : 'Never'], ['Synced users', synced ?? 'Not returned'],
-  ] }];
-}
-
 export const TENANT_PAGES = {
   't-settings': { section: 'TENANT', title: 'Settings', load: settings },
   't-domains': { section: 'TENANT', title: 'Domains', load: domains },
   't-roles': { section: 'TENANT', title: 'Roles', load: roles },
-  't-hybrid': { section: 'TENANT', title: 'Hybrid', load: hybrid },
 };

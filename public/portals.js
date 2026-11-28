@@ -10,7 +10,7 @@ const GROUPS = [
     ['Microsoft Purview portal', 'https://purview.microsoft.com/', 'DLP, sensitivity labels, retention, audit'],
     ['Exchange admin center', 'https://admin.exchange.microsoft.com/', 'Mailboxes, mail flow, connectors'],
     ['Teams admin center', 'https://admin.teams.microsoft.com/', 'Teams policies and devices'],
-    ['SharePoint admin center', 'https://sectechtalk-admin.sharepoint.com/', 'Sites and sharing (SecTechTalk tenant)'],
+    ['SharePoint admin center', 'https://contoso-admin.sharepoint.com/', 'Sites and sharing (SecTechTalk tenant)'],
     ['Power Platform admin center', 'https://admin.powerplatform.microsoft.com/', 'Environments and data policies'],
   ] },
   { title: 'Azure resources', links: [
@@ -49,8 +49,8 @@ const GROUPS = [
   ] },
   { title: 'Developer and status', links: [
     ['Azure DevOps', 'https://dev.azure.com/', 'All your Azure DevOps organizations'],
-    ['Azure DevOps: sectechtalk-e360', 'https://dev.azure.com/sectechtalk-e360', 'Entity 360 organization'],
-    ['Azure DevOps: SecTechTalk', 'https://dev.azure.com/SecTechTalk', 'SecTechTalk organization'],
+    ['Azure DevOps: contoso-e360', 'https://dev.azure.com/contoso-e360', 'Entity 360 organization'],
+    ['Azure DevOps: SecTechTalk', 'https://dev.azure.com/contoso', 'SecTechTalk organization'],
     ['Graph Explorer', 'https://developer.microsoft.com/graph/graph-explorer', 'Try Microsoft Graph queries'],
     ['Microsoft 365 service health', 'https://admin.microsoft.com/#/servicehealth', 'Incidents and advisories for this tenant'],
     ['Azure status', 'https://azure.status.microsoft/', 'Public Azure status'],

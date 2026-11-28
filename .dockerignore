@@ -18,3 +18,9 @@ docs
 *.md
 *.ps1
 azure-pipelines.yml
+# Backups and editor leftovers never go into the image
+**/*.pre-*
+**/*.bak
+**/*.orig
+**/*~
+public/**/*.ps1.bak

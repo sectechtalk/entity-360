@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { openRail } from './open-rail.mjs';
+import { freePort } from './free-port.mjs';
 
 test('browser: landing directly on authz as Admin shows matching count and clears loading', async t => {
-  const PORT = 3674, TENANT = '11111111-1111-1111-1111-111111111111';
+  const PORT = await freePort(), TENANT = '11111111-1111-1111-1111-111111111111';
   Object.assign(process.env, { DEMO_MODE: 'false', ENTRA_TENANT_ID: TENANT, ENTRA_CLIENT_ID: '22222222-2222-2222-2222-222222222222', ENTRA_CERT_THUMBPRINT: 'A'.repeat(40), ENTRA_CERT_PRIVATE_KEY_PATH: 'C:\\outside\\x.pem' });
   let chromium; try { ({ chromium } = await import('@playwright/test')); } catch { t.skip('playwright not installed'); return; }
   let browser; try { browser = await chromium.launch({ channel: 'msedge' }); } catch { try { browser = await chromium.launch(); } catch { t.skip('no browser available'); return; } }
@@ -17,7 +19,7 @@ test('browser: landing directly on authz as Admin shows matching count and clear
   await new Promise(r => server.once('listening', r));
   const rows = Array.from({ length: 6 }, (_, i) => ({ time: `2026-10-30T04:5${i}:21.000Z`, user: 'aaron@example.test', path: '/api/billing', role: 'E360.Billing', outcome: i < 2 ? 'denied' : 'allowed' }));
   try {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); await openRail(ctx); await ctx.addInitScript(() => { window.__e360SectionsOpen = true; }); const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.route('**/api/authz/log', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enforced: true, rows }) }));
     let slow = false;
     await page.route('**/api/investigate*', async route => { if (slow) await new Promise(r => setTimeout(r, 4000)); route.continue().catch(() => {}); });

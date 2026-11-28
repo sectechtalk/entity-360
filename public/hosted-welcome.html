@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Try Entity 360 against your own Microsoft Entra tenant. Read-only; nothing about you is stored.">
+  <title>Entity 360 · Hosted demo</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/hosted-welcome.css">
+</head>
+<body>
+<main class="hw" id="hosted-welcome">
+  <h1>Entity <b>360</b> hosted demo</h1>
+  <p class="lead">Investigate people, groups, devices, access and sign-ins in <strong>your own</strong> Microsoft Entra tenant. You sign in with your work or school account, and every read runs against your tenant with your own permissions.</p>
+  <div class="actions">
+    <a class="btn primary" id="hw-signin" href="/auth/login">Sign in with Microsoft</a>
+    <a class="btn" id="hw-consent" href="/auth/login?consent=1">Admin: approve for my organization</a>
+  </div>
+  <h2>Before you start</h2>
+  <ol>
+    <li><strong>Your admin approves it once.</strong> Entity 360 asks for read permissions that only an admin can grant. A Global Administrator or Privileged Role Administrator clicks <em>Admin: approve for my organization</em>, ticks <em>Consent on behalf of your organization</em> and accepts. After that, anyone in the tenant can sign in.</li>
+    <li><strong>Use a test tenant, not production.</strong> This is a demo with no warranty and no support agreement.</li>
+    <li><strong>Remove it when you are done.</strong> Delete <em>Entity 360 (hosted demo)</em> under Enterprise applications in the Microsoft Entra admin center.</li>
+  </ol>
+  <h2>What this demo does and does not do</h2>
+  <ul>
+    <li>Read-only. It never requests a permission that can change your tenant, and actions such as PIM activation or Intune remediation are switched off.</li>
+    <li>Nothing about you is stored. Tokens stay in the server's memory for your session only and are gone after 60 idle minutes or when you sign out. Logs keep your tenant ID and what was requested, never your name or results.</li>
+    <li>Not available here: on-prem Active Directory pages (the demo cannot reach your network) and the local device collector.</li>
+  </ul>
+</main>
+</body>
+</html>

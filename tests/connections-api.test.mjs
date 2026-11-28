@@ -3,19 +3,21 @@ process.env.DEMO_MODE ??= 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CONSUMER_TENANT } from '../server/connections.mjs';
+import { freePort } from './free-port.mjs';
 const a = '11111111-1111-1111-1111-111111111111', b = '22222222-2222-2222-2222-222222222222';
 process.env.ENTRA_TENANT_ID = a; process.env.ENTRA_CLIENT_ID = a;
 process.env.PERSONAL_CLIENT_ID = b; process.env.ALLOW_MULTI_TENANT = 'true';
 const { createApp } = await import('../server/index.mjs');
 test('authenticated context switching isolates tenant/account resources and browser sessions', async t => {
+  const p3624 = await freePort();
   const scopes = [];
-  const server = createApp({ port: 3624, createMsal(options) {
+  const server = createApp({ port: p3624, createMsal(options) {
     const tenant = options.auth.authority.endsWith('/consumers') ? CONSUMER_TENANT : options.auth.authority.split('/').at(-1);
     return { getTokenCache() { return { serialize: () => '{}', deserialize() {} }; }, async acquireTokenByDeviceCode(request) { scopes.push(request.scopes); return { account: { tenantId: tenant, localAccountId: tenant, homeAccountId: 'same-home', username: 'same@example.test', name: 'Same name' } }; } };
-  } }).listen(3624, '127.0.0.1');
+  } }).listen(p3624, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const base = 'http://127.0.0.1:3624'; const first = await fetch(base + '/api/session');
+  const base = `http://127.0.0.1:${p3624}`; const first = await fetch(base + '/api/session');
   const session = await first.json(); const headers = { Cookie: first.headers.get('set-cookie').split(';')[0], 'X-CSRF-Token': session.csrf, 'Content-Type': 'application/json' };
   const post = async (url, data) => fetch(base + url, { method: 'POST', headers, body: JSON.stringify(data) });
   await post('/api/auth/start', { tenantId: a });
@@ -37,9 +39,10 @@ test('authenticated context switching isolates tenant/account resources and brow
   await post('/api/demo', {}); state = await (await fetch(base + '/api/session', { headers })).json(); assert.equal(state.connections.length, 0);
 });
 test('tenant discovery silently connects only the same principal and collects licenses without switching the active tenant', async t => {
+  const p3625 = await freePort();
   const account = tenant => ({ tenantId: tenant, localAccountId: tenant, homeAccountId: 'same-home', username: 'same@example.test' });
   const requests = [];
-  const server = createApp({ port: 3625, createMsal(options) {
+  const server = createApp({ port: p3625, createMsal(options) {
     const tenant = options.auth.authority.split('/').at(-1);
     return { getTokenCache() { return { serialize: () => '{}', deserialize() {} }; }, async acquireTokenByDeviceCode() { return { account: account(tenant) }; }, async acquireTokenSilent() { return { account: account(tenant), accessToken: tenant }; } };
   }, apiFetcher: async (url, options) => {
@@ -48,9 +51,9 @@ test('tenant discovery silently connects only the same principal and collects li
     if (url.pathname === '/v1.0/me') return Response.json({ id: tokenTenant, userPrincipalName: 'same@example.test' });
     if (url.pathname.endsWith('/licenseDetails')) return Response.json({ value: [{ skuPartNumber: tokenTenant === a ? 'LICENSE-A' : 'LICENSE-B', servicePlans: [] }] });
     return Response.json({ value: [] });
-  } }).listen(3625, '127.0.0.1');
+  } }).listen(p3625, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve)); t.after(() => new Promise(resolve => server.close(resolve)));
-  const base = 'http://127.0.0.1:3625'; const first = await fetch(base + '/api/session'); const s = await first.json();
+  const base = `http://127.0.0.1:${p3625}`; const first = await fetch(base + '/api/session'); const s = await first.json();
   const headers = { Cookie: first.headers.get('set-cookie').split(';')[0], 'X-CSRF-Token': s.csrf, 'Content-Type': 'application/json' };
   const post = (path, data) => fetch(base + path, { method: 'POST', headers, body: JSON.stringify(data) });
   await post('/api/auth/start', { tenantId: a }); await post('/api/auth/start', { resource: 'azure' });

@@ -2,6 +2,7 @@
 process.env.DEMO_MODE ??= 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { freePort } from './free-port.mjs';
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
 const CLIENT = '22222222-2222-2222-2222-222222222222';
@@ -29,13 +30,15 @@ test('role claims: unknown names are dropped and non-arrays are ignored', () => 
   assert.deepEqual(rolesFromClaims(null), []);
 });
 
-test('decisions: demo is open, enforced live needs the exact role, roles never imply each other', () => {
+test('decisions: demo is open, enforced live needs the exact role, only Admin includes Reader', () => {
   assert.equal(decide({ mode: 'demo', path: '/api/billing', roles: [], enforce: true }).allowed, true);
   assert.equal(decide({ mode: 'live', path: '/api/billing', roles: ['E360.Reader'], enforce: true }).allowed, false);
   assert.equal(decide({ mode: 'live', path: '/api/billing', roles: ['E360.Billing'], enforce: true }).allowed, true);
   assert.equal(decide({ mode: 'live', path: '/api/intune/health', roles: ['E360.Billing', 'E360.Reader'], enforce: true }).allowed, false);
   assert.match(decide({ mode: 'live', path: '/api/billing', roles: [], enforce: false }).reason, /not enforced/);
   assert.equal(decide({ mode: 'live', path: '/api/session', roles: [], enforce: true }).allowed, true);
+  assert.equal(decide({ mode: 'live', path: '/api/investigate', roles: ['E360.Admin'], enforce: true }).reason, 'role included by E360.Admin');
+  assert.equal(decide({ mode: 'live', path: '/api/investigate', roles: ['E360.Billing'], enforce: true }).allowed, false);
 });
 
 test('callback validation rejects missing, expired, mismatched, error and code-less responses', () => {
@@ -61,6 +64,7 @@ test('decision log is bounded and newest first', () => {
 });
 
 test('full sign-in: PKCE and nonce are sent, roles are read from the validated token, features are gated server-side, replay is refused', async t => {
+  const p3644 = await freePort();
   let authRequest, redeemed = 0;
   const account = { homeAccountId: `u.${TENANT}`, localAccountId: '33333333-3333-3333-3333-333333333333', tenantId: TENANT, username: 'viewer@example.test', name: 'Viewer' };
   const mock = {
@@ -68,10 +72,10 @@ test('full sign-in: PKCE and nonce are sent, roles are read from the validated t
     acquireTokenByCode: async options => { redeemed++; assert.ok(options.codeVerifier); assert.equal(options.nonce, authRequest.nonce, 'msal 4+ needs the nonce at redemption'); return { account, idTokenClaims: { nonce: authRequest.nonce, roles: ['E360.Reader', 'Not.AnEntityRole'] }, accessToken: 'x' }; },
     getTokenCache: () => ({ serialize: () => '{}', deserialize() {} }),
   };
-  const server = createApp({ port: 3644, confidential: true, enforceRoles: true, createConfidential: () => mock, certificate: () => ({ thumbprint: 'A'.repeat(40), privateKey: 'test' }) }).listen(3644, '127.0.0.1');
+  const server = createApp({ port: p3644, confidential: true, enforceRoles: true, createConfidential: () => mock, certificate: () => ({ thumbprint: 'A'.repeat(40), privateKey: 'test' }) }).listen(p3644, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const base = 'http://127.0.0.1:3644';
+  const base = `http://127.0.0.1:${p3644}`;
   const first = await fetch(base + '/api/session');
   const session = await first.json();
   const cookie = first.headers.get('set-cookie').split(';')[0];
@@ -81,7 +85,7 @@ test('full sign-in: PKCE and nonce are sent, roles are read from the validated t
   assert.equal(login.status, 302);
   assert.equal(authRequest.codeChallengeMethod, 'S256');
   assert.ok(authRequest.codeChallenge && authRequest.state && authRequest.nonce);
-  assert.equal(authRequest.redirectUri, 'http://localhost:3644/auth/callback');
+  assert.equal(authRequest.redirectUri, `http://localhost:${p3644}/auth/callback`);
 
   const bad = await get(`/auth/callback?code=${'c'.repeat(20)}&state=wrong`);
   assert.equal(bad.status, 302);
@@ -115,10 +119,11 @@ test('full sign-in: PKCE and nonce are sent, roles are read from the validated t
 });
 
 test('without a configured certificate the sign-in route refuses instead of falling back', async t => {
-  const server = createApp({ port: 3645, confidential: false }).listen(3645, '127.0.0.1');
+  const p3645 = await freePort();
+  const server = createApp({ port: p3645, confidential: false }).listen(p3645, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const base = 'http://127.0.0.1:3645';
+  const base = `http://127.0.0.1:${p3645}`;
   const first = await fetch(base + '/api/session');
   const cookie = first.headers.get('set-cookie').split(';')[0];
   const r = await fetch(base + '/auth/login', { redirect: 'manual', headers: { Cookie: cookie } });

@@ -38,19 +38,21 @@ test('live events carry service and audit category', () => {
   assert.match(live, /auditCategory: ev\.category\?\.localizedValue/);
 });
 
-function themeEnv(stored) {
+function themeEnv(stored, osDark = false) {
   const store = new Map(stored ? [['e360-theme', stored]] : []);
   const listeners = {};
   const btn = { attrs: {}, title: '', setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => btn.label, label: { textContent: '' }, addEventListener: (e, f) => { btn.click = f; } };
   const document = { documentElement: { dataset: {} }, getElementById: id => (id === 'theme-toggle' ? btn : null), addEventListener: (e, f) => { listeners[e] = f; } };
   const localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
-  vm.runInNewContext(read('public/theme.js'), { window: { document, localStorage }, module: undefined });
+  const matchMedia = q => ({ matches: osDark && /dark/.test(q), addEventListener() {} });
+  vm.runInNewContext(read('public/theme.js'), { window: { document, localStorage, matchMedia }, module: undefined });
   listeners.DOMContentLoaded();
   return { document, btn, store };
 }
 
-test('dark is the default theme and the toggle persists', () => {
-  const { document, btn, store } = themeEnv();
+test('with no stored choice the theme follows the OS, and the toggle persists', () => {
+  assert.equal(themeEnv(null, false).document.documentElement.dataset.theme, 'light');
+  const { document, btn, store } = themeEnv(null, true);
   assert.equal(document.documentElement.dataset.theme, 'dark');
   assert.equal(btn.label.textContent, 'Light mode');
   btn.click();
@@ -61,12 +63,15 @@ test('dark is the default theme and the toggle persists', () => {
 
 test('a stored light choice is respected', () => {
   assert.equal(themeEnv('light').document.documentElement.dataset.theme, 'light');
-  assert.equal(themeEnv('bogus').document.documentElement.dataset.theme, 'dark');
+  assert.equal(themeEnv('light', true).document.documentElement.dataset.theme, 'light');
+  assert.equal(themeEnv('bogus', true).document.documentElement.dataset.theme, 'dark');
+  assert.equal(themeEnv('bogus', false).document.documentElement.dataset.theme, 'light');
 });
 
 test('styles define a dark palette with contrast fixes', () => {
-  const css = read('public/styles.css');
-  assert.match(css, /html\[data-theme="dark"\]\{color-scheme:dark;--t0:/);
+  const css = read('public/styles.css'), base = read('public/360-base.css');
+  assert.match(base, /:root\[data-theme="dark"\]\{color-scheme:dark;\s*--bg:/);
+  assert.match(base, /prefers-color-scheme:dark/);
   assert.match(css, /html\[data-theme="dark"\] \.btn:disabled/);
   assert.match(css, /html\[data-theme="dark"\] a:not\(\.btn\)/);
   assert.match(read('public/index.html'), /<button id="theme-toggle" class="btn"/);

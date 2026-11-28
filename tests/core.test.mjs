@@ -8,6 +8,7 @@ import { timeRange } from '../server/model.mjs';
 import { MicrosoftApi, liveReport, workspaceQueries } from '../server/live.mjs';
 import { evaluateConditionalAccess, resourceGraph, roleAssignmentQuery, pimTiming, unknownInputs } from '../server/access.mjs';
 import { createApp } from '../server/index.mjs';
+import { freePort } from './free-port.mjs';
 
 const now = Date.parse('2026-10-09T12:00:00Z');
 const range = { from: '2026-10-02T12:00:00.000Z', to: '2026-10-09T12:00:00.000Z' };
@@ -98,13 +99,14 @@ test('live aggregation hides forbidden connectors and deduplicates actor/target 
   assert.equal(report.events.length, 1); assert.equal(report.events[0].direction, 'Actor & Target');
 });
 test('local API rejects foreign hosts, cross-origin mutations and missing CSRF; sessions are isolated', async t => {
-  const port = 3619;
+  const port = await freePort();
   const server = createApp({ port }).listen(port, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
   const base = `http://127.0.0.1:${port}`;
   const response = await fetch(`${base}/api/session`);
   const cookie = response.headers.get('set-cookie').split(';')[0], session = await response.json();
+  assert.match(cookie, /^entity360=/, 'local http keeps the plain cookie name; __Host- needs HTTPS');
   assert.equal(response.status, 200); assert.equal(session.mode, 'demo');
   assert.equal((await fetch(`${base}/api/demo`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
   const foreignHostStatus = await new Promise((resolve, reject) => {
@@ -117,4 +119,15 @@ test('local API rejects foreign hosts, cross-origin mutations and missing CSRF; 
   const separate = await fetch(`${base}/api/session`); assert.equal((await separate.json()).profile, 'analyst');
   const report = await fetch(`${base}/api/investigate?${new URLSearchParams({ id: entities[0].id, ...range })}`, { headers: { Cookie: cookie } });
   assert.equal((await report.json()).sources.length, 3);
+});
+test('user sign-ins on the Summary use the fast v1.0 interactive feed even with Graph beta on', async () => {
+  const id = entities[0].id, seen = [];
+  const api = {
+    async request(url) { if (url === `/v1.0/users/${id}`) return { id, displayName: 'Alex', userPrincipalName: 'alex@example.test' }; throw Object.assign(new Error('denied'), { status: 403 }); },
+    async pages(url) { if (url.includes('/auditLogs/signIns')) seen.push(decodeURIComponent(url)); return { rows: [], truncated: false }; },
+  };
+  await liveReport(api, id, 'user', range, { tenant: 'test', beta: true });
+  assert.equal(seen.length, 1);
+  assert.ok(seen[0].startsWith('/v1.0/auditLogs/signIns'), seen[0]);
+  assert.doesNotMatch(seen[0], /signInEventTypes|nonInteractiveUser/);
 });

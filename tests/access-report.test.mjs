@@ -8,6 +8,7 @@ import { roleForPath } from '../server/authflow.mjs';
 import { VIEW_ROLES } from '../public/access-denied.js';
 import { reportCsv, csvName, REPORT_COLUMNS } from '../public/access-report.js';
 import { startHarness } from './e360-browser-harness.mjs';
+import { freePort } from './free-port.mjs';
 
 const G = 'aaaaaaaa-1111-2222-3333-444444444444', R = 'bbbbbbbb-1111-2222-3333-444444444444', U = 'dddddddd-1111-2222-3333-444444444444', U2 = 'eeeeeeee-1111-2222-3333-444444444444', NG = '00000000-0000-0000-0000-000000000001';
 const megan = { '@odata.type': '#microsoft.graph.user', id: U, displayName: 'Megan Bowen', userPrincipalName: 'meganb@contoso.example' };
@@ -103,7 +104,7 @@ test('CSV: clear columns, formula guard, file name', () => {
 });
 
 test('browser: search, pick, run with progress, table, Export CSV (header Export too)', async t => {
-  const h = await startHarness(t, { port: 3711, roles: ['E360.Admin', 'E360.Reader'] }); if (!h) return;
+  const h = await startHarness(t, { roles: ['E360.Admin', 'E360.Reader'] }); if (!h) return;
   try {
     const { ctx, page, errors } = await h.open({ before: async p => {
       await p.route('**/api/access-report/search**', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [{ id: G, name: 'Contoso Finance', detail: 'Security group' }] }) }));
@@ -130,7 +131,7 @@ test('browser: search, pick, run with progress, table, Export CSV (header Export
 });
 
 test('browser: without E360.Admin the page shows the access denial', async t => {
-  const h = await startHarness(t, { port: 3712, roles: ['E360.Reader'] }); if (!h) return;
+  const h = await startHarness(t, { roles: ['E360.Reader'] }); if (!h) return;
   try {
     const { ctx, page } = await h.open();
     await page.click('#navigation [data-view="g-access-report"]');

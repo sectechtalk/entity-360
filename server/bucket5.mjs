@@ -6,8 +6,10 @@ import { AUTH_PAGES } from './pages/auth.mjs';
 import { EXTERNAL_PAGES } from './pages/external.mjs';
 import { GOVERNANCE_PAGES } from './pages/governance.mjs';
 import { APPS_PAGES } from './pages/apps.mjs';
+import { ONPREM_PAGES } from './pages/onprem.mjs';
+import { STRENGTH_PAGES } from './pages/strength.mjs';
 
-export const B5_PAGES = { ...TENANT_PAGES, ...AUTH_PAGES, ...EXTERNAL_PAGES, ...GOVERNANCE_PAGES, ...APPS_PAGES };
+export const B5_PAGES = { ...TENANT_PAGES, ...ONPREM_PAGES, ...AUTH_PAGES, ...STRENGTH_PAGES, ...EXTERNAL_PAGES, ...GOVERNANCE_PAGES, ...APPS_PAGES };
 // Pages that stay out of the nav until their scope is consented. Write scopes are never requested.
 export const B5_DEFERRED = [
   ['TENANT', 'Attributes', 'CustomSecAttributeDefinition.Read.All'],
@@ -24,7 +26,7 @@ export const B5_DEFERRED = [
 // Partial pages: the page ships, one part waits for a scope.
 export const B5_PARTIAL = [
   ['TENANT', 'Domains', 'Domain.Read.All (federation settings and DNS records)'],
-  ['TENANT', 'Hybrid', 'OnPremDirectorySynchronization.Read.All (sync feature flags)'],
+  ['ON-PREM AD', 'Sync health', 'OnPremDirectorySynchronization.Read.All (Connect version, features and pending changes) and Synchronization.Read.All (Cloud Sync job status)'],
   ['GOVERNANCE', 'PIM', 'RoleManagementAlert.Read.Directory (PIM alerts)'],
   ['APPS', 'Consent', 'ConsentRequest.Read.All (pending admin consent requests)'],
 ];
@@ -33,9 +35,9 @@ export async function loadPage(api, key, ctx = {}) {
   const page = B5_PAGES[key];
   if (!page) throw fail('Unknown page.', 404);
   if (page.azure && !ctx.azure) throw fail('Connect Azure to load this page.', 409);
-  const notes = [];
-  const tables = (await page.load(api, { ...ctx, notes })).filter(Boolean);
-  return { key, title: page.title, tables, notes };
+  const notes = [], meta = {};
+  const tables = (await page.load(api, { ...ctx, notes, meta })).filter(Boolean);
+  return { key, title: page.title, ...meta, tables, notes };
 }
 // One table whose read failed becomes a note; the rest of the page still loads.
 export async function part(notes, label, fn) {

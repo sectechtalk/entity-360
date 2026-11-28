@@ -4,10 +4,12 @@ export const TABLE_SELECTOR = 'table:has(> thead th)';
 export const MIN_COL_WIDTH = 48;
 export const storageKey = id => `e360-colw:${id}`;
 export const clampWidth = w => Math.max(MIN_COL_WIDTH, Math.round(Number(w) || 0));
+// Header label for the saved-width key, ignoring "?" toggletips so adding one does not reset saved widths.
+const headLabel = th => { if (!th.cloneNode || !th.querySelector?.('.tip')) return th.textContent.trim(); const c = th.cloneNode(true); c.querySelectorAll('.tip, .tip-text').forEach(n => n.remove()); return c.textContent.trim(); };
 export function tableId(table) {
   if (table.dataset.tableId) return table.dataset.tableId;
   const body = table.querySelector('tbody[id]'); if (body) return body.id;
-  const host = table.closest('[id]'); return `${host ? host.id : 'page'}:${[...table.querySelectorAll('thead th')].map(th => th.textContent.trim()).join('|')}`;
+  const host = table.closest('[id]'); return `${host ? host.id : 'page'}:${[...table.querySelectorAll('thead th')].map(headLabel).join('|')}`;
 }
 export function loadWidths(storage, id, count) {
   try { const v = JSON.parse(storage.getItem(storageKey(id)) || 'null'); return Array.isArray(v) && v.length === count && v.every(n => Number.isFinite(n)) ? v.map(clampWidth) : null; } catch { return null; }

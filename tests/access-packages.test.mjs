@@ -40,9 +40,9 @@ test('packageRow tolerates missing package details', () => {
   assert.equal(p.catalog, 'Not returned'); assert.deepEqual(p.resources, []); assert.equal(p.expires, null);
 });
 
-test('Investigate has a read-only Access packages tab next to Admin roles, using .btn and delegated scope', async () => {
+test('Investigate has a read-only Access packages tab (first, tabs are alphabetical), using .btn and delegated scope', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
-  assert.match(html, /data-tab="roles"[^>]*>Admin roles<\/button><button class="tab" role="tab" data-tab="packages"/);
+  assert.match(html, /aria-label="Access"><button class="tab" role="tab" data-tab="packages"[^>]*>Access packages<\/button><button class="tab" role="tab" data-tab="adgroups"[^>]*>AD groups<\/button><button class="tab" role="tab" data-tab="roles"/);
   const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /state\.tab === 'packages'/);
   assert.match(app, /data-table-id="access-packages"/);

@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server/index.mjs';
+import { freePort } from './free-port.mjs';
 
 test('DEMO_MODE off: signed-out sessions get 401 and sign-in, never demo data', async t => {
+  const p3851 = await freePort();
   const mock = { getAuthCodeUrl: async () => 'https://login.example.test/authorize', acquireTokenByCode: async () => { throw Object.assign(new Error('x'), { errorCode: 'invalid_grant', errorMessage: 'AADSTS50105: not assigned' }); } };
-  const server = createApp({ port: 3661, demoMode: false, confidential: true, createConfidential: () => mock, certificate: () => ({ thumbprint: 'A'.repeat(40), privateKey: 'test' }) }).listen(3661, '127.0.0.1');
+  const server = createApp({ port: p3851, demoMode: false, confidential: true, createConfidential: () => mock, certificate: () => ({ thumbprint: 'A'.repeat(40), privateKey: 'test' }) }).listen(p3851, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const base = 'http://127.0.0.1:3661';
+  const base = `http://127.0.0.1:${p3851}`;
   const root = await fetch(base + '/', { redirect: 'manual' });
   assert.equal(root.status, 302);
   assert.equal(root.headers.get('location'), '/auth/login');

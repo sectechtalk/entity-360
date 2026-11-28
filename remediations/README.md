@@ -24,5 +24,6 @@ Nothing runs app-only or with another identity.
 
 Every request (accepted, denied or failed) is recorded with id, UTC time, requester UPN and object id, reason,
 device, managed device id, device user, script id, result and Graph error text. Records are kept in memory
-(`GET /api/intune/remediation-runs`, E360.Admin, shown as Run requests with CSV export) and written as one JSON line
-prefixed `E360_AUDIT ` to stdout, so the Container Apps console log keeps them after a restart.
+(`GET /api/intune/remediation-runs`, E360.Admin, shown as Run requests with CSV export), written as one JSON line
+prefixed `E360_AUDIT ` to stdout (live log stream only: the environment stores no logs), and written to the durable audit
+trail (a private GitHub repository, see DEPLOY.md), so the record survives a restart and the page reloads the last 14 days.

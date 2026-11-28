@@ -27,7 +27,7 @@ function open(button, code) {
   input.focus();
 }
 document.querySelector('#error-lookup-open').onclick = event => open(event.currentTarget);
-document.querySelector('#error-lookup-close').onclick = () => dialog.close();
+if (!('command' in HTMLButtonElement.prototype)) document.querySelector('#error-lookup-close').onclick = () => dialog.close();
 dialog.addEventListener('close', () => opener?.focus());
 input.oninput = () => input.setCustomValidity('');
 document.querySelector('#error-lookup-form').onsubmit = event => { event.preventDefault(); lookup(); };

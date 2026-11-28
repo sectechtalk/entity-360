@@ -117,6 +117,10 @@ export async function accessReport(api, rawKind, rawId) {
 }
 
 // The audit line: who ran it, the kind of scope, the group or role id (never a user's id), row count, outcome.
-export function auditLine({ requester, kind, scopeId, rows, outcome, ms, error }) {
-  return 'E360_AUDIT ' + JSON.stringify({ type: 'access-report', time: new Date().toISOString(), requester: { upn: requester?.upn || null, objectId: requester?.objectId || null }, scope: kind, scopeId: kind === 'user' ? null : scopeId || null, rows: rows ?? null, outcome, ms: ms ?? null, error: error ? String(error).slice(0, 300) : null });
+// auditRecord is the object the server writes to the audit trail; auditLine is the same record as a stdout line.
+export function auditRecord({ requester, kind, scopeId, rows, outcome, ms, error }) {
+  return { type: 'access-report', time: new Date().toISOString(), requester: { upn: requester?.upn || null, objectId: requester?.objectId || null }, scope: kind, scopeId: kind === 'user' ? null : scopeId || null, rows: rows ?? null, outcome, ms: ms ?? null, error: error ? String(error).slice(0, 300) : null };
+}
+export function auditLine(fields) {
+  return 'E360_AUDIT ' + JSON.stringify(auditRecord(fields));
 }

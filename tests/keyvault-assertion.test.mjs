@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createVerify, generateKeyPairSync, createSign } from 'node:crypto';
 import { createKeyVaultAssertion, signingInput, thumbprintHeader, validateVault, azureCliVaultToken } from '../server/keyvault-assertion.mjs';
+import { freePort } from './free-port.mjs';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const CLIENT = '00000000-0000-4000-8000-0000000000a3';
@@ -95,15 +96,16 @@ test('Azure CLI token helper parses the CLI output and reports a clean error oth
 });
 
 test('MSAL receives a callback, not key material, when Key Vault signing is on', async () => {
+  const p3655 = await freePort();
   const mod = await import('../server/index.mjs');
   let options;
-  const app = mod.createApp({ port: 3655, confidential: true, useKeyVault: true, makeAssertion: () => async () => 'jwt', createConfidential: o => { options = o; return { getAuthCodeUrl: async () => 'https://login.example.test/authorize?state=x' }; } });
-  const server = app.listen(3655, '127.0.0.1');
+  const app = mod.createApp({ port: p3655, confidential: true, useKeyVault: true, makeAssertion: () => async () => 'jwt', createConfidential: o => { options = o; return { getAuthCodeUrl: async () => 'https://login.example.test/authorize?state=x' }; } });
+  const server = app.listen(p3655, '127.0.0.1');
   await new Promise(r => server.once('listening', r));
   try {
-    const first = await fetch('http://127.0.0.1:3655/api/session');
+    const first = await fetch(`http://127.0.0.1:${p3655}/api/session`);
     const cookie = first.headers.get('set-cookie').split(';')[0];
-    const res = await fetch('http://127.0.0.1:3655/auth/login', { redirect: 'manual', headers: { Cookie: cookie } });
+    const res = await fetch(`http://127.0.0.1:${p3655}/auth/login`, { redirect: 'manual', headers: { Cookie: cookie } });
     assert.equal(res.status, 302);
     assert.equal(typeof options.auth.clientAssertion, 'function');
     assert.equal(options.auth.clientCertificate, undefined);

@@ -1,4 +1,5 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { hasRole } from '../public/role-model.js';
 
 // Feature authorization for Entity 360 itself. App roles say which Entity 360 features a person may open. They never
 // grant access to a source: each backend call still runs with the viewer's own delegated token, and the source
@@ -15,17 +16,20 @@ export const ROUTE_ROLES = [
   ['/api/intune/remediation-runs', 'E360.Admin'],
   ['/api/billing', 'E360.Billing'],
   ['/api/portfolio', 'E360.Billing'],
-  // Authorization decision log: every user's decisions, so only E360.Admin. Admin implies no other role and no other role implies Admin.
+  // Authorization decision log: every user's decisions, so only E360.Admin. No other role includes Admin (Admin includes Reader, see public/role-model.js).
   ['/api/authz', 'E360.Admin'],
   // On-demand access report: everyone's access to a group, role or user, so only E360.Admin.
   ['/api/access-report', 'E360.Admin'],
   ['/api/licenses', 'E360.Reader'],
+  ['/api/deployment-log', 'E360.Reader'],
   ['/api/account', 'E360.Reader'],
   // '/api/me/pim' (My PIM) is deliberately not listed: session only, own assignments only (see server/index.mjs).
   ['/api/entities', 'E360.Reader'],
   ['/api/investigate', 'E360.Reader'],
   ['/api/activity', 'E360.Reader'],
   ['/api/device', 'E360.Reader'],
+  ['/api/findings', 'E360.Reader'],
+  ['/api/incidents', 'E360.Reader'],
 ];
 export const roleForPath = path => ROUTE_ROLES.filter(([prefix]) => path === prefix || path.startsWith(prefix + '/')).sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? null;
 
@@ -42,22 +46,35 @@ export function decide({ mode, path, roles, enforce }) {
   if (mode === 'demo') return { allowed: true, needed, reason: 'demo data' };
   if (!needed) return { allowed: true, needed: null, reason: 'no feature role required' };
   if (!enforce) return { allowed: true, needed, reason: 'app roles not enforced for this sign-in type' };
-  // E360.Billing and the others do not imply each other; only an exact role opens a feature.
-  return roles.includes(needed) ? { allowed: true, needed, reason: 'role present' } : { allowed: false, needed, reason: 'role missing' };
+  // Only the exact role opens a feature, except that E360.Admin includes E360.Reader (public/role-model.js).
+  if (roles.includes(needed)) return { allowed: true, needed, reason: 'role present' };
+  if (hasRole(roles, needed)) return { allowed: true, needed, reason: 'role included by E360.Admin' };
+  return { allowed: false, needed, reason: 'role missing' };
 }
 
-// Authorization decision log: every allow, deny and unknown. Kept in memory with a bound; optionally appended to a
-// file by the caller. No tokens, no query text.
+// Authorization decision log: every allow, deny and unknown. Kept in memory with a bound. The caller also writes the
+// durable ones (see durableDecision) to the audit trail, and restores them after a restart. No tokens, no query text.
 export class DecisionLog {
   constructor(limit = 500) { this.limit = limit; this.rows = []; }
   add({ user, tenant, source, path, outcome, reason, needed }) {
-    const row = { time: new Date().toISOString(), user: user || null, tenant: tenant || null, source: source || 'entity360', path, outcome, reason, role: needed || null };
+    const row = { id: randomUUID(), time: new Date().toISOString(), user: user || null, tenant: tenant || null, source: source || 'entity360', path, outcome, reason, role: needed || null };
     this.rows.push(row);
     if (this.rows.length > this.limit) this.rows.shift();
     return row;
   }
+  // Merge rows read back from the durable audit trail (after a restart). Rows already in memory are kept once.
+  restore(rows = []) {
+    const pick = r => ({ id: r.id, time: r.time, user: r.user ?? null, tenant: r.tenant ?? null, source: r.source || 'entity360', path: r.path ?? null, outcome: r.outcome, reason: r.reason ?? null, role: r.role ?? null });
+    const seen = new Set(this.rows.map(r => r.id));
+    const merged = [...rows.filter(r => r?.id && r.time && !seen.has(r.id)).map(pick), ...this.rows].sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    this.rows = merged.slice(-this.limit);
+  }
   list(n = 100) { return this.rows.slice(-n).reverse(); }
 }
+
+// Which decisions go to the durable audit trail. Allowed feature requests are routine and stay in memory only; denials,
+// sign-ins (allowed or refused) and role re-check results are kept.
+export const durableDecision = row => row.outcome === 'denied' || String(row.path || '').startsWith('/auth/') || row.source === 'role-check';
 
 // Authorization-code + PKCE: one pending request per browser session, single use, short lived.
 export function newPending(crypto, now = Date.now()) {

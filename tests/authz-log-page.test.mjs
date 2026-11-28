@@ -15,7 +15,7 @@ const rows = [
 test('nav item sits in the Investigate group and the page is registered', () => {
   const html = read('public/index.html'), app = read('public/app.js');
   const nav = html.slice(html.indexOf('>INVESTIGATE<'), html.indexOf('>MY ACCOUNT<'));
-  assert.match(nav, /data-view="authz"[^>]*>.*Authorization log<\/button>/);
+  assert.match(nav, /data-view="authz"[^>]*>.*Authorization log<\/a>/);
   for (const id of ['authz-panel', 'authz-filter', 'authz-refresh', 'authz-export', 'authz-table', 'authz-help']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(app, /authz: \['Authorization log'/);
   assert.match(app, /authz: '#authz-panel'/);

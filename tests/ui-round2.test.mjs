@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mergeRows, shownRows, menuOptions, pimColumns, deactivateWait, friendlyError, MIN_ACTIVE_MS, BLANK } from '../public/pim.js';
 import { startHarness } from './e360-browser-harness.mjs';
+import { freePort } from './free-port.mjs';
 
 const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -35,19 +36,19 @@ test('column menus: unchecked values hide rows, text matches a substring, values
   assert.ok(menuOptions([{ ...row(4), end: null }], scope).includes(BLANK));
 });
 
-test('static: TOOLS section holds Error code lookup, nav labels are 13px, form fields are spaced, Export never disabled', () => {
+test('static: TOOLS section holds Error code lookup, nav labels are one step above the links (14px), form fields are spaced, Export never disabled', () => {
   const tools = html.indexOf('data-section="tools"'), lookup = html.indexOf('id="error-lookup-open"'), navEnd = html.indexOf('</nav>');
   assert.ok(tools > 0 && lookup > tools && lookup < navEnd, 'Error code lookup sits under TOOLS inside the nav');
   assert.equal(html.match(/id="error-lookup-open"/g).length, 1);
   assert.match(html, /data-section="tools"><span>TOOLS<\/span>/);
-  assert.match(css, /\.nav-label\{display:block;padding:14px 18px 4px;font-size:13px;/);
+  assert.match(css, /\.nav-label,\.nav-label\[data-section\]\{padding:14px 12px 4px;font-size:var\(--text-base\);/);
   assert.match(css, /\.pim-form label\{display:inline-flex;align-items:center;gap:14px;margin:0 28px 10px 0\}/);
   assert.doesNotMatch(app, /function exportReason\(/);
   assert.match(app, /toast\('Nothing on this page to export yet\. Load or run the page first\.'\)/);
 });
 
 test('browser: Deactivate sends selfDeactivate after 5 minutes, refuses early with a message, and shows API errors', async t => {
-  const h = await startHarness(t, { port: 3702, roles: [] }); if (!h) return;
+  const h = await startHarness(t, { roles: [] }); if (!h) return;
   const ago = m => new Date(Date.now() - m * 60000).toISOString(), soon = new Date(Date.now() + 3600000).toISOString();
   let rows = [row(1), { ...row(1), id: 'a1', state: 'Active (activated)', start: ago(10), end: soon }, row(2), { ...row(2), id: 'a2', state: 'Active (activated)', start: ago(1), end: soon }, row(3), { ...row(3), id: 'a3', state: 'Active (activated)', start: ago(20), end: soon }];
   const requests = [];
@@ -89,7 +90,7 @@ test('browser: Deactivate sends selfDeactivate after 5 minutes, refuses early wi
 });
 
 test('browser: Export is enabled everywhere and exports the shown table; activate form, nav labels, TOOLS and menu text filter', async t => {
-  const h = await startHarness(t, { port: 3703, roles: [] }); if (!h) return;
+  const h = await startHarness(t, { roles: [] }); if (!h) return;
   const rows = [row(1), row(2), row(3)];
   try {
     const { ctx, page, errors } = await h.open({ before: async p => {
@@ -132,10 +133,10 @@ test('browser: Export is enabled everywhere and exports the shown table; activat
     });
     for (const g of gaps) assert.ok(g >= 12, `gap ${g}px`);
 
-    // Nav section labels: 13px, one line each; TOOLS holds Error code lookup, which opens its dialog.
+    // Nav section labels: 14px, one step above the 13px links (360 rail standard), one line each; TOOLS holds Error code lookup, which opens its dialog.
     const nav = await page.$$eval('#navigation .nav-label', ls => ls.map(l => [l.textContent.trim(), getComputedStyle(l).fontSize, Math.round(l.querySelector('span').getBoundingClientRect().height)]));
     assert.ok(nav.some(([t]) => t === 'TOOLS'));
-    for (const [t, size, hgt] of nav) { assert.equal(size, '13px', t); assert.ok(hgt <= 24, `${t} fits on one line (${hgt}px)`); }
+    for (const [t, size, hgt] of nav) { assert.equal(size, '14px', t); assert.ok(hgt <= 24, `${t} fits on one line (${hgt}px)`); }
     await page.click('#navigation #error-lookup-open');
     assert.equal(await page.evaluate(() => document.querySelector('#error-lookup-dialog').open), true);
     await page.click('#error-lookup-close');

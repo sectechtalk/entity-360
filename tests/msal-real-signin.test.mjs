@@ -5,6 +5,7 @@ process.env.DEMO_MODE ??= 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ConfidentialClientApplication } from '@azure/msal-node';
+import { freePort } from './free-port.mjs';
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
 const CLIENT = '22222222-2222-2222-2222-222222222222';
@@ -55,7 +56,7 @@ async function boot(t, port, idTokenNonce) {
 
 test('real MSAL sign-in: the nonce sent to /authorize is passed to the code redemption and the ID token validates', async t => {
   let sentNonce;
-  const { get, seen } = await boot(t, 3871, () => sentNonce);
+  const { get, seen } = await boot(t, await freePort(), () => sentNonce);
   const login = await get('/auth/login');
   assert.equal(login.status, 302);
   const url = new URL(login.headers.get('location'));
@@ -71,14 +72,14 @@ test('real MSAL sign-in: the nonce sent to /authorize is passed to the code rede
 });
 
 test('real MSAL sign-in: an ID token whose nonce does not match the one we sent is refused', async t => {
-  const { get } = await boot(t, 3872, () => 'f'.repeat(32));
+  const { get } = await boot(t, await freePort(), () => 'f'.repeat(32));
   const url = new URL((await get('/auth/login')).headers.get('location'));
   const cb = await get(`/auth/callback?code=${'c'.repeat(20)}&state=${url.searchParams.get('state')}`);
   assert.equal(cb.headers.get('location'), '/auth/error');
 });
 
 test('real MSAL sign-in: an ID token with no nonce at all is refused', async t => {
-  const { get } = await boot(t, 3873, () => undefined);
+  const { get } = await boot(t, await freePort(), () => undefined);
   const url = new URL((await get('/auth/login')).headers.get('location'));
   const cb = await get(`/auth/callback?code=${'c'.repeat(20)}&state=${url.searchParams.get('state')}`);
   assert.equal(cb.headers.get('location'), '/auth/error');

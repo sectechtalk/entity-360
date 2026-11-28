@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { mergeRows, stateLabel, eligibilityLabel, shownRows, pimRowsHtml, pimHeadHtml, settled, PIM_COLUMNS } from '../public/pim.js';
 import { stateOf } from '../server/pim.mjs';
 import { startHarness } from './e360-browser-harness.mjs';
+import { freePort } from './free-port.mjs';
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const G = n => `4444444${n}-4444-4444-4444-444444444444`;
 const elig = (n, extra = {}) => ({ id: `e${n}`, type: 'Group', name: `sg-e360-g${String(n).padStart(2, '0')}`, scope: G(n % 10), scopeLabel: 'Group member', state: 'Eligible', start: '2026-10-30T16:17:00Z', end: '2027-10-30T16:17:00Z', key: `group|g${n}|member`, target: { groupId: G(n % 10), accessId: 'member' }, ...extra });
@@ -55,7 +56,7 @@ test('every column sorts (header) and filters (menu with a text box and checkbox
   }
   assert.doesNotMatch(head, /<select/);
   for (const o of ['Entra role', 'Group', 'Azure role', 'Active', 'Eligible', 'Assigned', 'Pending', 'Activate', 'Deactivate', 'None']) assert.match(head, new RegExp(`data-pim-check value="${o}" checked`));
-  assert.match(head, /aria-sort="descending"[^>]*>Name<span class="sort-mark"> \u25bc/);
+  assert.match(head, /aria-sort="descending"><button type="button" class="sort-button">Name<span class="sort-mark" aria-hidden="true"> \u25bc/);
   const rows = mergeRows([elig(1), elig(2), { ...elig(3), state: 'Active (activated)', id: 'a3', end: '2026-10-31T03:06:00Z' }, elig(3)], true);
   assert.deepEqual(shownRows(rows, { self: true, sort: { key: 'name', dir: 'desc' } }).map(r => r.name), ['sg-e360-g03', 'sg-e360-g02', 'sg-e360-g01']);
   assert.deepEqual(shownRows(rows, { self: true, filters: { state: 'Active' } }).map(r => r.name), ['sg-e360-g03']);
@@ -72,7 +73,7 @@ test('pim.js has no global busy: no table-wide disable, and polling stops per ro
 });
 
 test('browser: My PIM keeps scroll, per-row pending, merged row after activation, polling stops, sort and filter, click-only', async t => {
-  const h = await startHarness(t, { port: 3691, roles: [] }); if (!h) return;
+  const h = await startHarness(t, { roles: [] }); if (!h) return;
   let rows = [...Array.from({ length: 30 }, (_, i) => elig(i + 1)),
     { id: 'o1', type: 'Group', name: 'sg-e360-g01', scope: G(1), scopeLabel: 'Group owner', state: 'Active (permanent)', start: '2026-10-01T00:00:00Z', end: null, key: 'group|g1|owner', target: { groupId: G(1), accessId: 'owner' } }];
   let reads = 0, policyCalls = 0, requests = [];

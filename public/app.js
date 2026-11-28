@@ -1,4 +1,7 @@
+import { NEWHIRE_VIEWS, createNewHireUi } from './newhire.js';
+import { tipHtml } from './tip.js';
 import { createBillingView } from './billing.js';
+import { hasRole } from './role-model.js';
 import { createPortalsView, createDefenderView } from './portals.js';
 import { createDeploymentView } from './deployment.js';
 import { partialMessage, bannerFor, APP_LEGEND } from './access-text.js';
@@ -6,6 +9,8 @@ import { pageSlice, pageInfo, pagerHtml, wirePager, DEFAULT_PAGE_SIZE } from './
 import { createDefenderEvents } from './defender.js';
 import { createBucket4Views } from './bucket4.js';
 import { createBucket5View, B5_VIEWS } from './bucket5.js';
+import { createFindingsView, FINDINGS_TITLE } from './findings.js';
+import { createIncidentsView, INCIDENTS_TITLE } from './incidents.js';
 import { createAccessReportView } from './access-report.js';
 import { createLicenseView } from './licenses.js';
 import { createAccountView } from './account.js';
@@ -13,16 +18,25 @@ import { createIntuneView } from './intune.js';
 import { createAuthzLogView, authzVisible } from './authz-log.js';
 import { createRemediationView } from './remediation-results.js';
 import { createPimView } from './pim.js';
+import { accessPortalLinksHtml } from './access-portals.js';
 import { installButtonFeedback } from './btn-feedback.js';
+import { installDisabledWhy } from './disabled-why.js';
+import { installSections } from './sections.js';
 installButtonFeedback(document);
+installSections(document);
+installDisabledWhy(document);
 import './error-lookup.js';
 import { createSignInLookup } from './signins.js';
 import { joinTypeLabel } from './device-links.js';
+import { createDeviceLookupView } from './device-lookup.js';
+import { reportUrl, bindReportButton, downloadReport, REPORT_LABEL, REPORT_TIP } from './entity-pdf.js';
 import { accountCardText } from './account-state.js';
 import { B3_TABS, b3Panel, b3Url, whatIfForm, whatIfResult, diagnosticsPanel } from './tab-tables.js';
 import { installColumnResize } from './col-resize.js';
 import { ACTIVITY_HEADERS, activityColumns, activityService, activityCategory, activityStatus, activityActor } from './activity-columns.js';
 import { installNavSections } from './nav-sections.js';
+import { viewFromHash, tabFromHash, writeView, writeTab, onViewChange } from './router.js';
+import { installTabs, syncTabs } from './tabs.js';
 import { missingRole, deniedHtml, VIEW_ROLES } from './access-denied.js';
 import { filterOptions, applyFilters, multiSelectHtml, wireMultiSelects, filtersIntoHeaders, installMultiSelectDismiss, remainingBucket, grantedBucket, REMAINING_BUCKETS, GRANTED_BUCKETS } from './multiselect.js';
 const $ = selector => document.querySelector(selector);
@@ -55,15 +69,18 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;
 const safeUrl = value => { try { const url = new URL(value); return url.protocol === 'https:' ? esc(url.href) : '#'; } catch { return '#'; } };
 const external = (url, label, cls = 'btn') => `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer" class="${cls || 'btn'}">${esc(label)}</a>`;
 const initials = name => String(name || '').split(/[\s-]+/).map(s => s[0]).slice(0, 2).join('').toUpperCase();
-const typeLabel = type => ({ user: 'User', application: 'Application', managedIdentity: 'Managed identity' }[type] || type);
+const typeLabel = type => ({ user: 'User', application: 'Application', managedIdentity: 'Managed identity', device: 'Device' }[type] || type);
 const categoryIcon = category => ({ 'Sign-ins': 'user', CLI: 'terminal', API: 'cloud', Changes: 'document', Governance: 'key', 'Data access': 'document' }[category] || 'activity');
 const state = { resultFilter: null, policyKind: null, autoRan: new Set(), session: null, report: null, entity: null, view: 'summary', tab: 'ca', signinFilter: 'all', deviceStates: {}, category: 'All', source: 'all', direction: 'all', selected: null, page: 0, policyMode: 'current', days: 7, range: null, searchResults: [], searchIndex: -1, loading: false, fx: { excluded: {}, open: null } };
+const linkedHash = location.hash; // read before anything rewrites the URL
 let searchTimer, searchVersion = 0, requestVersion = 0, pollTimer, toastTimer;
 let pageSize = DEFAULT_PAGE_SIZE;
+const newHireUi = createNewHireUi({ root: id => document.getElementById(`${id}-panel`) });
 const signinPaging = { page: 0, size: DEFAULT_PAGE_SIZE };
 const presetRange = days => ({ from: new Date(Date.now() - days * 86400000).toISOString(), to: new Date().toISOString() });
 state.range = presetRange(7);
 const DENIAL_TEXT = 'Your Entity 360 roles do not include this feature.';
+const csrfHeaders = () => (state.session ? { 'X-CSRF-Token': state.session.csrf } : {});
 async function api(url, options = {}) {
   const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(state.session ? { 'X-CSRF-Token': state.session.csrf } : {}), ...options.headers } });
   const data = await response.json();
@@ -102,11 +119,20 @@ const billingView = createBillingView({ api, esc, external, onSources: sourceLin
 const portalsView = createPortalsView({ esc, external });
 const defenderView = createDefenderView({ esc, external });
 const bucket5 = createBucket5View({ api, esc, external: (u, l) => external(u, l), emptyBox: t => emptyBox(t) });
+const findingsView = createFindingsView({ api, esc, external: (u, l, c) => external(u, l, c), emptyBox: t => emptyBox(t),
+  download: async (url, button) => { const label = button.textContent; button.disabled = true; button.textContent = 'Building PDF…'; try { toast(await downloadReport(url, { headers: csrfHeaders() })); } catch (e) { toast(e.message); } finally { button.disabled = false; button.textContent = label; } } });
 const bucket4 = createBucket4Views({ api, esc, fmtTime: t => fmtTime(t), resultBadge: v => resultBadge(v), external, emptyBox: t => emptyBox(t) });
 const defenderEvents = createDefenderEvents({ api, esc, external, entity: () => state.report?.entity || null, session: () => state.session, showEvidence });
 const deploymentView = createDeploymentView({ esc });
 const authzView = createAuthzLogView({ api, esc, emptyBox: t => emptyBox(t) });
 const accessReportView = createAccessReportView({ api, esc, emptyBox: t => emptyBox(t), toast: m => toast(m) });
+const deviceView = createDeviceLookupView({ root: document.querySelector('#device-lookup-panel'), api: (...a) => api(...a), esc, external, resultBadge: r => resultBadge(r), intuneReason: () => roleReason('E360.Intune'), canSearch: () => state.session && state.session.mode !== 'signedout', onReport: { url: d => reportUrl({ type: 'device', entraId: d.entraId, intuneId: d.intuneId }), headers: () => csrfHeaders(), toast: m => toast(m) }, onPerson: person => { state.view = 'summary'; state.fx.excluded = {}; state.fx.open = null; state.fx.sort = null; loadEntity(person); } });
+// Opens the Device lookup page on one device (from search or a person's Devices page).
+function openDevice(entity) { state.view = 'device'; applyView(); deviceView.open(entity); }
+// Incidents: Open person loads the user's Summary; Open device opens Device lookup (by Entra ID, else a name search).
+const incidentsView = createIncidentsView({ api, esc, external: (u, l, c) => external(u, l, c), emptyBox: t => emptyBox(t),
+  onPerson: person => { state.view = 'summary'; state.fx.excluded = {}; state.fx.open = null; state.fx.sort = null; loadEntity(person); },
+  onDevice: d => { if (d.entraId) { openDevice({ id: d.entraId, type: 'device', name: d.name, entraId: d.entraId, intuneId: null }); return; } state.view = 'device'; applyView(); deviceView.search(d.name); } });
 const remediationView = createRemediationView({ api, esc, emptyBox: t => emptyBox(t), canRun: () => authzVisible(state.session) && state.session?.mode === 'live' });
 function sessionUI() {
   const s = state.session;
@@ -121,7 +147,7 @@ const ENTITY_VIEWS = ['summary', 'signins', 'access', 'devices', 'activity', 'pi
 const MY_VIEWS = ['my-summary', 'my-signins', 'my-access', 'my-device', 'my-pim'];
 const pimView = createPimView({ api, esc, emptyBox: t => emptyBox(t), root: () => $('#pim-page-body'), self: false, entity: () => state.entity });
 const myPimView = createPimView({ api, esc, emptyBox: t => emptyBox(t), root: () => $('#my-pim'), self: true, entity: () => null });
-const roleReason = role => { const s = state.session; return s?.rolesEnforced && !(s.appRoles || []).includes(role) ? `Requires ${role} role` : ''; };
+const roleReason = role => { const s = state.session; return s?.rolesEnforced && !hasRole(s.appRoles, role) ? `Requires ${role} role` : ''; };
 // Disable a button with a visible reason; enabling clears a reason we set.
 function setOff(el, reason) {
   if (!el) return;
@@ -215,7 +241,7 @@ function clearReport() {
   for (const selector of ['#summary-cards', '#signin-table-rows', '#access-tab-body', '#device-cards', '#event-rows', '#coverage-list', '#evidence-content', '#entity-header']) $(selector).innerHTML = '';
   $('#signin-drawer').hidden = true; $('#loading').hidden = true; $('#refresh-button').disabled = false; notice('');
   renderTopbar();
-  signInLookup.reset(); accountView.reset(); myPimView.reset(); pimView.reset(); intuneView.reset(); licenseView.reset(); billingView.reset(); applyView();
+  signInLookup.reset(); deviceView.reset(); accountView.reset(); myPimView.reset(); pimView.reset(); intuneView.reset(); licenseView.reset(); billingView.reset(); applyView();
 }
 async function loadEntity(entity, { refresh = false } = {}) {
   const version = ++requestVersion;
@@ -256,12 +282,13 @@ function render() {
 // ---- Summary: counts only, each linking to the page that holds the rows ----
 function renderSummary() {
   const r = state.report, e = r.entity;
-  $('#entity-header').innerHTML = `<section class="panel entity-strip"><span>Object ID <code>${esc(e.id)}</code></span><button type="button" class="btn" id="copy-entity">Copy ID</button>${linkBtn(r.mode === 'demo' ? 'https://entra.microsoft.com/' : e.link, 'Open in Entra')}</section>`;
+  $('#entity-header').innerHTML = `<section class="panel entity-strip"><span>Object ID <code>${esc(e.id)}</code></span><button type="button" class="btn" id="copy-entity">Copy ID</button>${linkBtn(r.mode === 'demo' ? 'https://entra.microsoft.com/' : e.link, 'Open in Entra')}<button type="button" class="btn" id="entity-pdf" data-busy="self" title="${esc(REPORT_TIP)}">${REPORT_LABEL}</button></section>`;
   $('#copy-entity').onclick = () => copy(e.id);
+  bindReportButton($('#entity-pdf'), { url: () => reportUrl(state.report?.entity || e, state.range), headers: csrfHeaders, toast });
   const si = signIns(), n = res => si.filter(x => x.result === res).length;
   const siOk = sourceOk('signins') || si.length;
   const rs = roles(), active = rs.filter(x => x.type !== 'Eligible'), soon = active.filter(x => x.ms > 0).sort((a, b) => a.ms - b.ms)[0];
-  const dev = devicePolicies(), comp = dev.filter(d => /^compliant$/i.test(d.status)).length;
+  const dev = devicePolicies(), managed = dev.filter(d => d.source === 'intune'), comp = managed.filter(d => /^compliant$/i.test(d.status)).length, entraOnly = dev.length - managed.length;
   const ca = (r.policies || []).filter(p => p.kind === 'Conditional Access'), caApply = ca.filter(p => caResult(p) === 'Applies').length, caInc = ca.filter(p => caResult(p) === 'Incomplete').length;
   const go = (label, view, extra = '', reason = '') => `<button type="button" class="btn" data-go="${view}" ${extra}${reason ? ` disabled title="${esc(reason)}"` : ''}>${esc(label)}</button>`;
   const card = (title, value, note, actions) => `<section class="panel summary-card"><h3>${esc(title)}</h3><div class="summary-value">${esc(value)}</div><p>${esc(note)}</p><div class="card-actions">${actions}</div></section>`;
@@ -269,7 +296,7 @@ function renderSummary() {
     card(`Sign-ins (${$('#range-label').textContent})`, siOk ? si.length : 'n/a', siOk ? `${n('Success')} succeeded, ${n('Blocked')} blocked, ${n('Failed')} failed` : 'Sign-in source unavailable or permission missing',
       [['Success', 'succeeded'], ['Blocked', 'blocked'], ['Failed', 'failed']].map(([res, word]) => go(`${n(res)} ${word}`, 'signins', `data-filter="${res}"`, n(res) ? '' : `No ${word} sign-ins in this range`)).join('')),
     card('Active admin roles', active.length, active.length ? soon ? `Soonest ends in ${soon.remaining} (${soon.p.name})` : 'None are time-limited' : `${rs.length - active.length} eligible, none active`, go('Open Admin roles', 'access', 'data-tab="roles"', rs.length ? '' : 'No role assignments returned for this user')),
-    card('Devices', dev.length, dev.length ? `${comp} compliant, ${dev.length - comp} not compliant` : sourceOk('intune') ? 'No Intune device for this user' : 'Intune source unavailable or permission missing', go('Open Devices', 'devices', '', dev.length ? '' : 'No Intune device for this user')),
+    card('Devices', dev.length, dev.length ? [managed.length ? `${comp} compliant, ${managed.length - comp} not compliant` : '', entraOnly ? `${entraOnly} not in Intune` : ''].filter(Boolean).join(', ') : sourceOk('intune') ? 'No Intune or Entra device for this user' : 'Intune not readable: activate an Intune-reading role in PIM', !dev.length && !sourceOk('intune') ? go('Open PIM', 'pim') : go('Open Devices', 'devices', '', dev.length ? '' : 'No device for this user')),
     accountCard(r.account, card),
     card('Conditional Access', caApply, ca.length ? `Policies applying${caInc ? `, ${caInc} incomplete` : ''}` : 'No policies returned (source unavailable or none apply)', go('Open Conditional Access', 'access', 'data-tab="ca"', ca.length ? '' : 'No Conditional Access results returned')),
   ].join('');
@@ -293,11 +320,11 @@ function renderSignins() {
   const slice = pageSlice(rows, signinPaging.page, signinPaging.size); signinPaging.page = slice.page;
   $('#signin-table-pager').innerHTML = rows.length ? pagerHtml('signin-table', slice, 'sign-ins') : '';
   wirePager($('#signin-table-pager'), 'signin-table', signinPaging, renderSignins);
-  $('#signin-table-rows').innerHTML = slice.rows.map((e, i) => `<tr data-signin="${i}" tabindex="0" class="${e.id === state.selected?.id ? 'selected' : ''}"><td>${esc(fmtTime(e.time))}</td><td>${esc(e.target || e.title)}</td><td>${resultBadge(e.result)}</td><td>${esc(e.ip || 'Not returned')}</td></tr>`).join('');
+  $('#signin-table-rows').innerHTML = slice.rows.map((e, i) => `<tr data-signin="${i}" class="${e.id === state.selected?.id ? 'selected' : ''}"><td><button type="button" class="row-open">${esc(fmtTime(e.time))}<span class="sr-only">, open details</span></button></td><td>${esc(e.target || e.title)}</td><td>${resultBadge(e.result)}</td><td>${esc(e.ip || 'Not returned')}</td></tr>`).join('');
   const empty = !rows.length;
   $('#signin-table-empty').hidden = !empty;
   $('#signin-table-empty').textContent = !sourceOk('signins') && !all.length ? 'Sign-in source unavailable or permission missing (needs AuditLog.Read.All and an Entra ID P1 tenant).' : all.length ? `No ${f.toLowerCase()} sign-ins in this range. Set Result to All.` : 'No sign-ins for this user in the selected date range.';
-  $$('#signin-table-rows tr').forEach(tr => { const open = () => { state.selected = slice.rows[Number(tr.dataset.signin)]; renderSignins(); }; tr.onclick = open; tr.onkeydown = ev => { if (ev.key === 'Enter') open(); }; });
+  $$('#signin-table-rows tr').forEach(tr => { const open = () => { const i = tr.dataset.signin; state.selected = slice.rows[Number(i)]; renderSignins(); $(`#signin-table-rows tr[data-signin="${i}"] .row-open`)?.focus(); }; tr.onclick = open; });
   renderDrawer();
 }
 function renderDrawer() {
@@ -339,6 +366,8 @@ function renderAccess() {
   $('#access-tab-sso').hidden = !isApp;
   if (!state.tab || (state.tab === 'apps' && !other.length) || (state.tab === 'sso' && !isApp)) state.tab = 'ca';
   $$('#access-page .tab').forEach(t => { const on = t.dataset.tab === state.tab; t.classList.toggle('active', on); t.setAttribute('aria-selected', on); });
+  syncTabs($('#access-page [role="tablist"]')); if (state.view === 'access') writeTab('access', state.tab);
+  $('#access-portal-links').innerHTML = accessPortalLinksHtml(state.tab, { tenant: state.session?.activeTenant || r.entity?.tenant || state.session?.defaultTenant, entity: r.entity }, { esc });
   const body = $('#access-tab-body');
   if (B3_TABS[state.tab]) { renderB3(body); return; }
   if (state.tab === 'ca') {
@@ -354,7 +383,7 @@ function renderAccess() {
     const all = roles();
     const cols = [{ key: 'roles.role', label: 'Role', get: x => x.p.name }, { key: 'roles.type', label: 'Type', get: x => x.type }, { key: 'roles.granted', label: 'Granted', get: x => x.grantedBucket, sortValue: x => x.p.timing?.granted ?? null }, { key: 'roles.remaining', label: 'Remaining', get: x => x.remainingBucket, sortValue: x => x.ms }, { key: 'roles.source', label: 'Source', get: x => x.via }];
     const rs = filtered(all, cols);
-    body.innerHTML = `<div class="panel-heading"><div><h2>Admin roles <span class="count">${countOf(rs.length, all.length)}</span></h2><p>Entra directory roles and Azure RBAC together. Remaining time comes from PIM. Granted filters by age of the grant; Remaining by time left.</p></div></div>` + pimGroupsLine(r.pimGroups) + (all.length ? filterBar(all, cols) : '') + (rs.length ? `<div class="table-wrap"><table class="event-table" data-table-id="access-roles"><thead><tr><th>Role</th><th>Scope</th><th>Type</th><th>Granted</th><th>Remaining</th><th>Source</th><th title="Actions the role definition allows (rolePermissions.allowedResourceActions)">Permissions</th><th title="PIM activation rules for eligible Entra roles">Activation</th><th></th></tr></thead><tbody>${rs.map(x => `<tr><td>${esc(x.p.name)}<small>${esc(x.plane)}</small></td><td><code>${esc(x.scope)}</code></td><td>${resultBadge(x.type)}<small>${esc(x.definition)}</small></td><td>${esc(x.granted)}</td><td>${esc(x.remaining)}</td><td>${esc(x.via)}</td><td${x.p.permissions?.length ? ` title="${esc(x.p.permissions.join('\n'))}"` : ''}>${esc(x.p.permissionText || (x.plane === 'Azure' ? 'See Azure portal' : 'Not returned'))}</td><td>${esc(x.p.activation || (x.type === 'Eligible' ? 'Not returned' : ''))}</td><td>${linkBtn(x.p.link, 'Open')}</td></tr>`).join('')}</tbody></table></div>` : emptyBox(all.length ? 'No roles match these filters. Use Select all to show every role.' : sourceOk('roles') || sourceOk('azure') ? 'No admin roles are assigned to this identity, directly or through groups.' : 'Role sources unavailable or permission missing (Entra roles need RoleManagement.Read.Directory; Azure roles need Connect Azure).'));
+    body.innerHTML = `<div class="panel-heading"><div><h2>Admin roles <span class="count">${countOf(rs.length, all.length)}</span></h2><p>Entra directory roles and Azure RBAC together. Remaining time comes from PIM. Granted filters by age of the grant; Remaining by time left.</p></div></div>` + pimGroupsLine(r.pimGroups) + (all.length ? filterBar(all, cols) : '') + (rs.length ? `<div class="table-wrap"><table class="event-table" data-table-id="access-roles"><thead><tr><th>Role</th><th>Scope</th><th>Type</th><th>Granted</th><th>Remaining</th><th>Source</th><th>Permissions ${tipHtml('Permissions', 'Actions the role definition allows (rolePermissions.allowedResourceActions)', esc)}</th><th>Activation ${tipHtml('Activation', 'PIM activation rules for eligible Entra roles', esc)}</th><th></th></tr></thead><tbody>${rs.map(x => `<tr><td>${esc(x.p.name)}<small>${esc(x.plane)}</small></td><td><code>${esc(x.scope)}</code></td><td>${resultBadge(x.type)}<small>${esc(x.definition)}</small></td><td>${esc(x.granted)}</td><td>${esc(x.remaining)}</td><td>${esc(x.via)}</td><td>${esc(x.p.permissionText || (x.plane === 'Azure' ? 'See Azure portal' : 'Not returned'))}${x.p.permissions?.length ? ` ${tipHtml(`permissions of ${x.p.name || 'this role'}`, x.p.permissions.join('\n'), esc)}` : ''}</td><td>${esc(x.p.activation || (x.type === 'Eligible' ? 'Not returned' : ''))}</td><td>${linkBtn(x.p.link, 'Open')}</td></tr>`).join('')}</tbody></table></div>` : emptyBox(all.length ? 'No roles match these filters. Use Select all to show every role.' : sourceOk('roles') || sourceOk('azure') ? 'No admin roles are assigned to this identity, directly or through groups.' : 'Role sources unavailable or permission missing (Entra roles need RoleManagement.Read.Directory; Azure roles need Connect Azure).'));
   } else if (state.tab === 'packages') {
     // Read-only entitlement management view: packages held, resources each grants, and pending requests.
     const ap = r.accessPackages || { packages: [], requests: [] };
@@ -383,7 +412,7 @@ function renderAccess() {
   body.querySelectorAll('.msel-bar').forEach(bar => filtersIntoHeaders(bar, body.querySelector('table')));
   body.querySelector('[data-msel][open] summary')?.focus();
 }
-$$('#access-page .tab').forEach(t => t.onclick = () => { state.tab = t.dataset.tab; renderAccess(); });
+installTabs($('#access-page [role="tablist"]'), key => { state.tab = key; renderAccess(); });
 // ---- Bucket 3: tables loaded when their tab is opened, cached per entity ----
 const b3Help = () => ({ esc, fmtTime, resultBadge, linkBtn, emptyBox, external });
 function renderB3(body) {
@@ -409,19 +438,29 @@ function renderDiagnostics() {
   root.innerHTML = `<div class="panel">${diagnosticsPanel(diagState, b3Help())}</div>`;
   root.querySelector('#diag-run').onclick = () => { diagState = { loading: true }; renderDiagnostics(); api('/api/tab-table?table=diagnostics').then(d => { diagState = { data: d }; }, err => { diagState = { error: err.message }; }).finally(renderDiagnostics); };
 }
+// Intune devices did not load: say what access is missing and send the reader to PIM to activate it.
+function intuneMissingHtml() {
+  return `<div class="inline-empty intune-missing"><p><strong>Intune devices could not be read.</strong> Reading Intune needs an Entra role that can read managed devices (for example Intune Administrator, Global Reader or Security Reader) to be active for you; the app already asks for DeviceManagementManagedDevices.Read.All.</p><p>If that role is eligible for you, activate it in <strong>INVESTIGATE &gt; PIM</strong>, then select Refresh.</p><p><button type="button" class="btn" data-go="pim">Open PIM to activate a role</button></p></div>`;
+}
 // ---- Devices: one card each; policy states load inline ----
 function renderDevices() {
   const dev = devicePolicies();
-  if (!dev.length) { $('#device-cards').innerHTML = emptyBox(sourceOk('intune') ? 'No Intune device for this user.' : 'Intune source unavailable or permission missing (needs DeviceManagementManagedDevices.Read.All).'); return; }
+  if (!dev.length) { $('#device-cards').innerHTML = (sourceOk('intune') ? emptyBox('No Intune or Entra device for this user.') : intuneMissingHtml()); return; }
   const intuneRole = roleReason('E360.Intune');
   $('#device-cards').innerHTML = dev.map((p, i) => {
     const st = state.deviceStates?.[i];
     const sync = p.evidence?.lastSyncDateTime ? fmtTime(p.evidence.lastSyncDateTime) : (/^Last synchronized:\s*/i.test(p.detail || '') ? String(p.detail).replace(/^Last synchronized:\s*/i, '') : 'Not returned');
     const reason = !p.deviceId ? 'No Intune device record for this device' : intuneRole;
     const states = !st ? '' : st.loading ? '<p class="muted">Loading policy states from Intune</p>' : st.error ? `<p class="error-text">${esc(st.error)}</p>` : st.rows.length ? `${filterBar(st.rows, devCols(i))}<div class="table-wrap"><table class="event-table" data-table-id="device-states"><thead><tr><th>Policy</th><th>Type</th><th>State</th></tr></thead><tbody>${filtered(st.rows, devCols(i)).map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.kind)}</td><td>${resultBadge(x.state)}</td></tr>`).join('')}</tbody></table></div>` : emptyBox('Intune returned no compliance or configuration policy states for this device.');
-    return `<section class="panel device-card"><h3>${esc(p.assignment || p.name)}</h3><dl><dt>Compliance</dt><dd>${resultBadge(p.status)}</dd><dt>Last sync</dt><dd>${esc(sync)}</dd><dt>Join type</dt><dd>${esc(joinTypeLabel(p.trustType))}</dd><dt>Policy</dt><dd>${esc(p.name)}</dd></dl><div class="card-actions"><button type="button" class="btn" data-states="${i}" ${reason ? `disabled title="${esc(reason)}"` : ''}>${st && !st.loading && !st.error ? 'Hide policy states' : 'Load policy states'}</button>${linkBtn(p.link, 'Open in Intune')}</div><div class="device-states">${states}</div></section>`;
+    const ev = p.evidence || {}, os = [ev.operatingSystem, ev.osVersion || ev.operatingSystemVersion].filter(Boolean).join(' ') || 'Not returned';
+    const own = { company: 'Corporate', personal: 'Personal' }[String(ev.managedDeviceOwnerType || p.entra?.deviceOwnership || '').toLowerCase()] || 'Not returned';
+    const intune = p.source === 'intune';
+    const facts = [['Compliance', resultBadge(p.status)], ['Linked as', esc(p.relation || p.assignment || '')], ['Operating system', esc(os)], ['Model', esc([ev.manufacturer, ev.model].filter(Boolean).join(' ') || 'Not returned')], ['Serial number', esc(intune ? ev.serialNumber || 'Not returned' : 'Needs an Intune record')], ['Ownership', esc(own)], ['Encrypted', esc(intune ? (ev.isEncrypted === true ? 'Yes' : ev.isEncrypted === false ? 'No' : 'Not returned') : 'Needs an Intune record')], ['Enrolled', esc(intune ? (ev.enrolledDateTime ? fmtTime(ev.enrolledDateTime) : 'Not returned') : 'Not enrolled')], [intune ? 'Last sync' : 'Last sign-in', esc(intune ? sync : ev.approximateLastSignInDateTime ? fmtTime(ev.approximateLastSignInDateTime) : 'Not returned')], ['Join type', esc(joinTypeLabel(p.trustType))]];
+    const canOpen = p.entraId || p.intuneId;
+    return `<section class="panel device-card"><h3>${esc(p.name)}</h3><dl>${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl><div class="card-actions"><button type="button" class="btn" data-open-device="${i}" ${canOpen ? '' : 'disabled title="No device ID returned"'}>Open device page</button><button type="button" class="btn" data-states="${i}" ${reason ? `disabled title="${esc(reason)}"` : ''}>${st && !st.loading && !st.error ? 'Hide policy states' : 'Load policy states'}</button>${intune ? linkBtn(p.link, 'Open in Intune') : linkBtn(p.link, 'Open in Entra')}</div><div class="device-states">${states}</div></section>`;
   }).join('');
   $$('[data-states]').forEach(b => b.onclick = () => loadDeviceStates(Number(b.dataset.states)));
+  $$('[data-open-device]').forEach(b => b.onclick = () => { const p = devicePolicies()[Number(b.dataset.openDevice)]; openDevice({ id: p.entraId || p.intuneId, type: 'device', name: p.name, entraId: p.entraId || null, intuneId: p.intuneId || null }); });
   $$('#device-cards .device-states').forEach(el => { const bar = el.querySelector('.msel-bar'); if (!bar) return; wireMultiSelects(bar, state.fx, () => renderDevices()); filtersIntoHeaders(bar, el.querySelector('table')); });
 }
 // Per-device policy-state filters (Type, State); keys are per card so devices filter independently.
@@ -473,8 +512,8 @@ function renderActivity() {
   $('#event-count').textContent = events.length;
   $('#filter-summary').textContent = `${events.length} events`;
   const srcs = state.report?.sources || [];
-  $('#event-rows').innerHTML = page.map((e, i) => `<tr data-event="${i}" tabindex="0" title="Open details"><td>${esc(fmtTime(e.time))}</td><td>${esc(activityService(e, srcs))}</td><td>${esc(activityCategory(e))}</td><td>${esc(e.title)}</td><td>${resultBadge(activityStatus(e))}</td><td>${esc(activityActor(e))}</td></tr>`).join('');
-  $$('#event-rows tr[data-event]').forEach(tr => { const open = () => showEvidence(page[Number(tr.dataset.event)]); tr.onclick = open; tr.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } }; });
+  $('#event-rows').innerHTML = page.map((e, i) => `<tr data-event="${i}"><td><button type="button" class="row-open">${esc(fmtTime(e.time))}<span class="sr-only">, open details</span></button></td><td>${esc(activityService(e, srcs))}</td><td>${esc(activityCategory(e))}</td><td>${esc(e.title)}</td><td>${resultBadge(activityStatus(e))}</td><td>${esc(activityActor(e))}</td></tr>`).join('');
+  $$('#event-rows tr[data-event]').forEach(tr => { const open = () => showEvidence(page[Number(tr.dataset.event)]); tr.onclick = open; });
   const loaded = otherEvents().some(e => e.onDemand);
   $('#timeline-empty').hidden = Boolean(events.length);
   $('#timeline-empty').textContent = !state.report ? 'Pick a user first.' : otherEvents().length ? 'No events match these filters. Use Select all in the filters.' : loaded ? 'The Azure activity log returned no events for this identity in that lookback.' : 'Nothing loaded yet. The activity log runs only when you click Load activity log.';
@@ -492,7 +531,8 @@ function renderCoverage() {
   $('#coverage-list').innerHTML = r.sources.map(s => `<article class="coverage-card"><header><h3>${esc(s.name)}</h3>${resultBadge(s.status)}</header><dl><dt>Scope</dt><dd>${esc(s.scope)}</dd><dt>Window</dt><dd>${esc(s.coverage)}</dd><dt>Activity</dt><dd>${esc(s.count)} observed events</dd><dt>Freshness</dt><dd>${esc(s.freshness)}</dd></dl><p>${esc(s.note)}</p>${linkBtn(s.url, 'Open source portal')}</article>`).join('') + `<article class="coverage-card"><h3>Interpretation and limits</h3>${(r.notes || []).map(n => `<p>${esc(n)}</p>`).join('')}<p>Returned rows are not a guarantee of complete retention, collection, or historical configuration.</p></article>`;
 }
 // ---- Page switching ----
-const TITLES = { ...B5_VIEWS, 'g-access-report': ['Access report', 'On-demand: who has access to a group, role or user, with PIM and last sign-in. CSV export; nothing stored.'], pim: ['PIM', 'Entra roles, PIM groups and Azure roles this user is eligible for or holds (read-only).'], 'my-pim': ['My PIM', 'Activate or deactivate your eligible Entra roles, PIM groups and Azure roles.'], emergency: ['Emergency access', 'Break-glass accounts: Conditional Access exclusions, last sign-in, roles and alert rules.'], logs: ['Logs', 'Saved KQL and workbooks for Log Analytics workspaces you can read.'], summary: ['Summary', 'Counts for the selected user. Each count opens the page that holds the rows.'], signins: ['Sign-ins', 'Select a sign-in to see why it succeeded, failed or was blocked.'], access: ['Access', 'Conditional Access, admin roles and groups for the selected user.'], devices: ['Devices', 'Intune devices for the selected user.'], activity: ['Azure activity', 'Azure control-plane activity, loaded only on demand.'], health: ['Health checks', 'Intune health run and which sources returned data.'], remediation: ['Remediation results', 'Network connectivity Remediation results per device, as reported to Intune.'], authz: ['Authorization log', 'Allow and deny decisions for Entity 360 features since the app last started.'], 'my-summary': ['My account', 'Your own account, read with your signed-in permissions.'], 'my-signins': ['My sign-ins', 'Your recent sign-ins and the policies Microsoft evaluated.'], 'my-access': ['My access', 'Licenses, groups, authentication methods and Conditional Access for you.'], 'my-device': ['My device', 'Your devices in Entra and Intune, and this computer.'], licenses: ['Licenses', 'Signed-in account first, authorized tenant inventory next.'], billing: ['Billing', 'Authorized billing evidence across connected contexts and scopes.'], deployment: ['Deployment/Onboarding', 'Every step used to bring each machine into Azure Arc, Intune and Defender.'], portals: ['Azure Portals', 'Every Azure and Microsoft 365 admin portal in one place. Links only; each portal checks your access.'], defender: ['Defender', 'Microsoft Defender workloads. Links only; each portal checks your access.'] };
+// Breadcrumb: the sidebar section heading above the page's nav button (TENANT, ON-PREM AD, ...).
+const TITLES = { ...NEWHIRE_VIEWS, ...B5_VIEWS, findings: FINDINGS_TITLE, incidents: INCIDENTS_TITLE, 'g-access-report': ['Access report', 'On-demand: who has access to a group, role or user, with PIM and last sign-in. CSV export; nothing stored.'], pim: ['PIM', 'Entra roles, PIM groups and Azure roles this user is eligible for or holds (read-only).'], 'my-pim': ['My PIM', 'Activate or deactivate your eligible Entra roles, PIM groups and Azure roles.'], emergency: ['Emergency access', 'Break-glass accounts: Conditional Access exclusions, last sign-in, roles and alert rules.'], logs: ['Logs', 'Saved KQL and workbooks for Log Analytics workspaces you can read.'], summary: ['Summary', 'Counts for the selected user. Each count opens the page that holds the rows.'], signins: ['Sign-ins', 'Select a sign-in to see why it succeeded, failed or was blocked.'], access: ['Access', 'Conditional Access, admin roles and groups for the selected user.'], devices: ['Devices', 'Intune and Entra devices for the selected user.'], device: ['Device lookup', 'Find a device by name, serial number or ID and see its details and the people who use it.'], activity: ['Azure activity', 'Azure control-plane activity, loaded only on demand.'], health: ['Health checks', 'Intune health run and which sources returned data.'], remediation: ['Remediation results', 'Network connectivity Remediation results per device, as reported to Intune.'], authz: ['Authorization log', 'Allow and deny decisions for Entity 360 features since the app last started.'], 'my-summary': ['My account', 'Your own account, read with your signed-in permissions.'], 'my-signins': ['My sign-ins', 'Your recent sign-ins and the policies Microsoft evaluated.'], 'my-access': ['My access', 'Licenses, groups, authentication methods and Conditional Access for you.'], 'my-device': ['My device', 'Your devices in Entra and Intune, and this computer.'], licenses: ['Licenses', 'Signed-in account first, authorized tenant inventory next.'], billing: ['Billing', 'Authorized billing evidence across connected contexts and scopes.'], deployment: ['Deployment/Onboarding', 'Every step used to bring each machine into Azure Arc, Intune and Defender.'], portals: ['Azure Portals', 'Every Azure and Microsoft 365 admin portal in one place. Links only; each portal checks your access.'], defender: ['Defender', 'Microsoft Defender workloads. Links only; each portal checks your access.'] };
 // A failing sub-view must never stop navigation (title, highlight and panel switch still happen).
 function guardView(name, fn) { try { fn(); } catch (error) { console.error(`[nav] ${name} failed`, error); } }
 const navSections = installNavSections($('#navigation'), (() => { try { return window.localStorage; } catch { return null; } })());
@@ -511,10 +551,11 @@ function applyView() {
   $('#navigation [data-view="authz"]').hidden = !authzOk;
   if (state.view === 'authz' && !authzOk) state.view = 'summary';
   const v = TITLES[state.view] ? state.view : 'summary'; state.view = v;
+  writeView(v);
   const entityPage = ENTITY_VIEWS.includes(v), my = MY_VIEWS.includes(v);
   const deniedRole = deniedRoleFor(v), av = deniedRole ? '' : v;
   guardView('lockNav', lockNav);
-  const pages = { summary: '#summary-page', signins: '#signins-page', access: '#access-page', devices: '#devices-page', activity: '#activity-page', pim: '#pim-page', health: '#health-page', deployment: '#deployment-panel', portals: '#portals-panel', defender: '#defender-panel', emergency: '#emergency-panel', logs: '#logs-panel', billing: '#billing-panel', licenses: '#license-panel', authz: '#authz-panel', remediation: '#remediation-panel' };
+  const pages = { start: '#start-panel', needs: '#needs-panel', summary: '#summary-page', signins: '#signins-page', access: '#access-page', devices: '#devices-page', device: '#device-lookup-panel', activity: '#activity-page', pim: '#pim-page', health: '#health-page', deployment: '#deployment-panel', portals: '#portals-panel', defender: '#defender-panel', emergency: '#emergency-panel', logs: '#logs-panel', billing: '#billing-panel', licenses: '#license-panel', authz: '#authz-panel', remediation: '#remediation-panel' };
   const showEntity = entityPage && state.report && !state.loading;
   for (const [key, sel] of Object.entries(pages)) $(sel).hidden = ENTITY_VIEWS.includes(key) ? !(showEntity && key === v) : key !== v;
   $('#intune-panel').hidden = v !== 'health';
@@ -525,7 +566,7 @@ function applyView() {
   $('#empty-state').hidden = !entityPage || Boolean(state.report) || state.loading;
   // The investigate loader belongs to the Investigate pages; other views (authz, tools) never show it, even while the signed-in user loads in the background.
   $('#loading').hidden = !(entityPage && state.loading);
-  $('#empty-reason').textContent = s?.mode === 'signedout' ? 'You are signed out. Sign in with Microsoft, then pick a user.' : !$('#notice').hidden && $('#notice').classList.contains('error') ? 'The last load failed (see the message above). Pick the user again or choose Refresh.' : 'No user is selected. Use Change user at the top (press /) to pick a person, application or managed identity.';
+  $('#empty-reason').textContent = s?.mode === 'signedout' ? 'You are signed out. Sign in with Microsoft, then pick a user.' : !$('#notice').hidden && $('#notice').classList.contains('error') ? 'The last load failed (see the message above). Pick the user again or choose Refresh.' : 'No user is selected. Use Change user at the top (press /) to pick a person, application, managed identity or device.';
   setOff($('#range-button'), entityPage || v === 'health' ? '' : 'The date range applies to the Investigate pages');
   setOff($('#focus-search'), s?.mode === 'signedout' ? 'Sign in first' : '');
   guardView('signInLookup.setActive', () => signInLookup.setActive(av === 'signins'));
@@ -541,6 +582,8 @@ function applyView() {
   guardView('bucket4.setEmergency', () => bucket4.setEmergency(av === 'emergency'));
   guardView('bucket4.setLogs', () => bucket4.setLogs(av === 'logs'));
   guardView('bucket5.setActive', () => bucket5.setActive(av));
+  guardView('findingsView.setActive', () => findingsView.setActive(av === 'findings'));
+  guardView('incidentsView.setActive', () => incidentsView.setActive(av === 'incidents'));
   // Partial results: only the tab whose data is affected, listing only that tab's sources (Defender shows its own).
   const banner = state.report && !state.loading && (entityPage || v === 'health') ? bannerFor(state.report, v) : '';
   $('#partial-banner').textContent = banner; $('#partial-banner').hidden = !banner;
@@ -550,6 +593,7 @@ function applyView() {
   guardView('pimView.setActive', () => pimView.setActive(state.view === 'pim' && Boolean(state.entity)));
   guardView('myPimView.setActive', () => myPimView.setActive(state.view === 'my-pim'));
   guardView('remediationView.setActive', () => remediationView.setActive(av === 'remediation'));
+  guardView('deviceView.setActive', () => deviceView.setActive(av === 'device'));
   guardView('navSections.expandFor', () => navSections.expandFor(state.view));
   $('#denied-panel').hidden = !deniedRole;
   if (deniedRole) {
@@ -557,13 +601,19 @@ function applyView() {
     $('#empty-state').hidden = true; $('#partial-banner').hidden = true;
     $('#denied-panel').innerHTML = deniedHtml(deniedRole);
     $$('#denied-panel [data-denied-signin]').forEach(b => { b.onclick = () => location.assign('/auth/login'); });
+    // Ask the server to re-check roles with Entra now (after a PIM activation) instead of waiting for the 5-minute check.
+    $$('#denied-panel [data-denied-recheck]').forEach(b => { b.onclick = async () => {
+      b.disabled = true;
+      try { state.session = await api('/api/session/recheck', { method: 'POST', body: '{}' }); deniedRoles.clear(); sessionUI(); applyView(); toast(missingRole(state.session, state.view) ? 'Your roles have not changed yet. A PIM activation can take a minute to reach Entity 360.' : 'Roles updated.'); }
+      catch (e) { toast(e.message); } finally { b.disabled = false; }
+    }; });
   }
   $('#main').className = `view-${v}${deniedRole ? ' is-denied' : ''}`;
   $('#page-title').textContent = TITLES[v][0];
   $('#page-subtitle').textContent = TITLES[v][1];
-  $('#breadcrumb').textContent = (my ? 'MY ACCOUNT' : entityPage || v === 'health' || v === 'remediation' || v === 'authz' ? 'INVESTIGATE' : 'MORE TOOLS');
   $$('#navigation [data-view]').forEach(b => { b.classList.toggle('active', b.dataset.view === v); if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   if (v === 'activity') renderActivity();
+  if (NEWHIRE_VIEWS[v]) newHireUi[v]();
   applyGates();
   syncHeaderExport();
   if (!deniedRole) autoRunView();
@@ -584,19 +634,30 @@ $('#header-export').onclick = () => {
   toast('Nothing on this page to export yet. Load or run the page first.');
 };
 // First visible table on the page that has data rows (a single-cell row is an empty-state message, not data).
+// A table inside a collapsed section still counts when that section is on the page showing.
+const foldedOnScreen = el => { const f = el.closest('.sec-folded'); return Boolean(f && (f.getClientRects().length || f.parentElement?.closest('.sec-folded'))); };
+const onPage = el => el.getClientRects().length > 0 || foldedOnScreen(el);
 function shownTable() {
-  return [...document.querySelectorAll('#main table')].find(t => t.getClientRects().length && dataRows(t).length) || null;
+  return [...document.querySelectorAll('#main table')].find(t => onPage(t) && dataRows(t).length) || null;
 }
-const dataRows = t => [...t.querySelectorAll('tbody tr')].filter(tr => tr.cells.length > 1 && tr.getClientRects().length);
+// Rows hidden by a filter stay out; rows hidden only because their section is collapsed are exported.
+const dataRows = t => [...t.querySelectorAll('tbody tr')].filter(tr => tr.cells.length > 1 && (tr.getClientRects().length || (foldedOnScreen(tr) && !tr.hidden && tr.style.display !== 'none')));
 function headerText(th) {
   if (th.dataset.label) return th.dataset.label;
-  const c = th.cloneNode(true); c.querySelectorAll('.msel, details, .sort-mark, .col-resizer, button, input, select').forEach(n => n.remove());
+  const c = th.cloneNode(true); c.querySelectorAll('.sort-button').forEach(b => b.replaceWith(...b.childNodes));
+  c.querySelectorAll('.msel, details, .sort-mark, .col-resizer, .tip-text, button, input, select').forEach(n => n.remove());
+  return c.textContent.replace(/\s+/g, ' ').trim();
+}
+// Cell text for export, without "?" toggletips and screen-reader-only hints such as ", open details".
+function cellText(td) {
+  if (!td.querySelector('.tip, .tip-text, .sr-only')) return td.innerText?.replace(/\s+/g, ' ').trim() ?? td.textContent.trim();
+  const c = td.cloneNode(true); c.querySelectorAll('.tip, .tip-text, .sr-only').forEach(n => n.remove());
   return c.textContent.replace(/\s+/g, ' ').trim();
 }
 function exportTableCsv(table, view) {
   const cell = value => { let v = String(value ?? ''); if (/^[=+@\-\t\r\n]/.test(v)) v = `'${v}`; return `"${v.replaceAll('"', '""')}"`; };
   const head = [...(table.querySelector('thead tr')?.cells || [])].map(headerText);
-  const body = dataRows(table).map(tr => [...tr.cells].map(td => td.innerText?.replace(/\s+/g, ' ').trim() ?? td.textContent.trim()));
+  const body = dataRows(table).map(tr => [...tr.cells].map(cellText));
   const rows = head.length ? [head, ...body] : body;
   const blob = new Blob(['﻿' + rows.map(row => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob), anchor = document.createElement('a'); anchor.href = url; anchor.download = `entity-360-${view}-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -672,12 +733,12 @@ async function search(query) {
     const data = await api(`/api/entities?q=${encodeURIComponent(query)}`);
     if (version !== searchVersion) return;
     state.searchResults = data.entities; state.searchIndex = -1;
-    container.innerHTML = data.entities.map((e, i) => `<button id="search-option-${i}" class="search-option" role="option" aria-selected="false" data-search="${i}"><span class="relationship-icon">${icon(e.type === 'user' ? 'user' : 'cloud')}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.subtitle)} · ${esc(typeLabel(e.type))}</small></span></button>`).join('') || '<div class="search-message">No matching entities in your authorized results.</div>';
+    container.innerHTML = data.entities.map((e, i) => `<button id="search-option-${i}" class="search-option" role="option" aria-selected="false" data-search="${i}"><span class="relationship-icon">${icon(e.type === 'user' ? 'user' : e.type === 'device' ? 'device' : 'cloud')}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.subtitle)} · ${esc(typeLabel(e.type))}</small></span></button>`).join('') || '<div class="search-message">No matching entities in your authorized results.</div>';
     if (data.partial) container.insertAdjacentHTML('beforeend', '<div class="search-message">Partial results. Refine your search.</div>');
     $$('[data-search]').forEach(button => button.onclick = () => selectSearch(Number(button.dataset.search)));
   } catch (error) { if (version === searchVersion) container.innerHTML = `<div class="search-message">${esc(error.message)}</div>`; }
 }
-function selectSearch(index) { const entity = state.searchResults[index]; if (!entity) return; hideSearch(); $('#entity-search').value = ''; state.fx.excluded = {}; state.fx.open = null; state.fx.sort = null; loadEntity(entity); }
+function selectSearch(index) { const entity = state.searchResults[index]; if (!entity) return; hideSearch(); $('#entity-search').value = ''; if (entity.type === 'device') { openDevice(entity); return; } state.fx.excluded = {}; state.fx.open = null; state.fx.sort = null; loadEntity(entity); }
 $('#entity-search').addEventListener('input', event => { clearTimeout(searchTimer); searchTimer = setTimeout(() => search(event.target.value), 250); });
 $('#entity-search').addEventListener('focus', event => search(event.target.value));
 $('#entity-search').addEventListener('keydown', event => {
@@ -694,7 +755,18 @@ $('#entity-search').addEventListener('keydown', event => {
 document.addEventListener('click', event => { if (!event.target.closest('.search-wrap')) hideSearch(); });
 document.addEventListener('keydown', event => { if (event.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) && !$('dialog[open]')) { event.preventDefault(); $('#entity-search').focus(); } });
 $('#focus-search').onclick = () => $('#entity-search').focus();
-$('#navigation').onclick = event => { const button = event.target.closest('[data-view]'); if (button) { state.view = button.dataset.view; applyView(); } };
+$('#navigation').onclick = event => {
+  const button = event.target.closest('[data-view]'); if (!button) return;
+  if (event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; // let the browser open a new tab or window
+  event.preventDefault(); state.view = button.dataset.view; applyView();
+};
+// Pages live in the URL: open the linked page on load, and follow Back, Forward and edited URLs.
+const isView = v => Boolean(TITLES[v]);
+const linkedView = viewFromHash(linkedHash, isView);
+if (linkedView) state.view = linkedView;
+const linkedTab = tabFromHash(linkedHash);
+if (linkedView === 'access' && linkedTab && document.querySelector(`#access-page .tab[data-tab="${linkedTab}"]`)) state.tab = linkedTab;
+onViewChange(isView, v => { if (v !== state.view) { state.view = v; applyView(); } });
 installMultiSelectDismiss(document, state.fx);
 { let ls = null; try { ls = localStorage; } catch { /* blocked */ } installColumnResize(document, ls || { getItem: () => null, setItem() {}, removeItem() {} }); }
 $('#activity-page-size').onchange = () => { pageSize = Number($('#activity-page-size').value) || DEFAULT_PAGE_SIZE; state.page = 0; renderTimeline(); };
@@ -705,7 +777,8 @@ $('#range-button').onclick = () => { $('#from-date').value = state.range.from.sl
 function setRange(range, days = null) { state.range = range; state.days = days; $('#range-label').textContent = days ? days === 1 ? 'Last 24 hours' : `Last ${days} days` : `${range.from.slice(5, 10)} – ${range.to.slice(5, 10)}`; $('#range-button').title = `${range.from} – ${range.to}`; $('#range-dialog').close(); if (state.entity) loadEntity(state.entity); }
 $$('[data-days]').forEach(b => b.onclick = () => setRange(presetRange(Number(b.dataset.days)), Number(b.dataset.days)));
 $('#range-form').onsubmit = event => { event.preventDefault(); const from = new Date(`${$('#from-date').value}Z`), to = new Date(`${$('#to-date').value}Z`); if (!Number.isFinite(+from) || !Number.isFinite(+to) || from >= to || +to - +from > 90 * 86400000) { $('#range-error').textContent = 'Choose a valid range of 90 days or less, with the end after the start.'; return; } setRange({ from: from.toISOString(), to: to.toISOString() }); };
-$$('.close-dialog').forEach(b => b.onclick = () => b.closest('dialog').close());
+// Close buttons use invoker commands (command="close"); this fallback runs only in browsers without them.
+if (!('command' in HTMLButtonElement.prototype)) $$('.close-dialog').forEach(b => b.onclick = () => b.closest('dialog').close());
 
 function connectionUI() {
   const s = state.session;

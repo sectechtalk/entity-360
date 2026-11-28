@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { ROLE_GROUPS } from '../public/access-denied.js';
 import { startHarness } from './e360-browser-harness.mjs';
+import { freePort } from './free-port.mjs';
 const dir = new URL('../public/', import.meta.url);
 const files = readdirSync(dir).filter(f => /\.(html|js)$/.test(f)).map(f => [f, readFileSync(new URL(f, dir), 'utf8')]);
 const css = readFileSync(new URL('styles.css', dir), 'utf8');
@@ -56,11 +57,14 @@ async function audit(page, cdp) {
     }
     out.push({ ...info, click, press });
   }
-  return out;
+  // A view that finishes loading while we walk replaces its buttons; a detached button has no ancestors to carry the
+  // delegated listener, so it would look unwired. Report that and let the caller audit the settled view again.
+  const moved = await page.evaluate(() => window.__audit.some(el => !el.isConnected));
+  return moved ? null : out;
 }
 
 test('browser: every visible button on every page has click wiring and no press-triggered handler', async t => {
-  const h = await startHarness(t, { port: 3693, roles: Object.keys(ROLE_GROUPS) }); if (!h) return;
+  const h = await startHarness(t, { roles: Object.keys(ROLE_GROUPS) }); if (!h) return;
   try {
     const { ctx, page, errors } = await h.open();
     const cdp = await ctx.newCDPSession(page); await cdp.send('DOM.enable'); await cdp.send('Runtime.enable');
@@ -69,7 +73,10 @@ test('browser: every visible button on every page has click wiring and no press-
     const bad = [], seen = new Set(); let total = 0;
     for (const v of views) {
       await page.click(`#navigation [data-view="${v}"]`); await page.waitForTimeout(400);
-      for (const b of await audit(page, cdp)) {
+      let found = null;
+      for (let tries = 0; tries < 10 && !found; tries++) { found = await audit(page, cdp); if (!found) await page.waitForTimeout(500); }
+      assert.ok(found, `${v}: the page kept replacing its buttons`);
+      for (const b of found) {
         const k = b.html; if (seen.has(k)) continue; seen.add(k); total++;
         if (!b.click) bad.push(`${v}: no click handler: ${b.html}`);
         if (b.press.length) bad.push(`${v}: press handler ${b.press.join(',')}: ${b.html}`);

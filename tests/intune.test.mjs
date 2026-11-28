@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { collectIntuneCloud, evaluateIntuneHealth, intuneHealthReport, demoIntuneReport, snapshotEnrollments, INTUNE_ENROLLMENT_APP_ID } from '../server/intune.mjs';
 import { normalizeSnapshot } from '../server/account.mjs';
 import { createApp } from '../server/index.mjs';
+import { freePort } from './free-port.mjs';
 
 const T = '11111111-1111-1111-1111-111111111111';
 const DEV = '00000000-0000-4000-8000-0000000000a6';
@@ -135,13 +136,14 @@ test('snapshot enrollment facts parse; stale sync and mdm log errors warn', () =
 });
 
 test('demo report evaluates, and the route requires CSRF and rejects bad snapshots', async t => {
+  const p3633 = await freePort();
   const demo = demoIntuneReport(null, NOW);
   assert.equal(demo.mode, 'demo');
   assert.ok(demo.checks.length >= 8);
-  const server = createApp({ port: 3633 }).listen(3633, '127.0.0.1');
+  const server = createApp({ port: p3633 }).listen(p3633, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const base = 'http://127.0.0.1:3633';
+  const base = `http://127.0.0.1:${p3633}`;
   const response = await fetch(base + '/api/session');
   const session = await response.json();
   const cookie = response.headers.get('set-cookie').split(';')[0];

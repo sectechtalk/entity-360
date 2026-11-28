@@ -41,7 +41,7 @@ test('role rows always have a label', async () => {
   const r = await myRoles(api, { id: 'me' }, []);
   assert.deepEqual(r.rows.map(x => x.name), ['r1', 'Unnamed role']);
   const js = await readFile(new URL('../public/account.js', import.meta.url), 'utf8');
-  assert.match(js, /external\(accessLink\(r\), r\.name \|\| r\.id \|\| 'Open'\)/);
+  assert.match(js, /Scope: \$\{esc\(r\.scope\)\}<\/span> ` : ''\}\$\{external\(accessLink\(r\), r\.name \|\| r\.id \|\| 'Open', 'name-link'\)/);
 });
 
 test('tables scroll horizontally; in-cell buttons size to their text', async () => {

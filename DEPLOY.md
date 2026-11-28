@@ -63,8 +63,35 @@ After `-Apply` it verifies and prints a pass/fail table: a new revision was crea
 - Sign in: expect app-role gating. The E360 MFA Conditional Access prompt is enforced only if plan step 1.7 is switched to On (last logged state: report-only). Billing is denied unless you are in `sg-e360-billing`; activation through PIM applies only once plan step 1.8 is done.
 - Logs: `az containerapp logs show -g rg-e360 -n app-e360 --follow` (console stream; there is no stored log history without a workspace).
 
+## Durable audit trail
+Audit records (Remediation run requests, access report runs, PIM requests, sign-ins, authorization denials, role re-checks)
+go to the console log stream and to a private GitHub repository, so they survive a restart or scale to zero. Same $0
+pattern as HeatMap 360's data repository. Until this is set up the app runs as before and the Authorization log says
+"Durable audit trail: not configured".
+
+1. Create a **private** repository, for example `your-org/e360-audit`, with a README so `main` exists. Records contain
+   UPNs, device names and reasons, so keep it private and limit who can read it.
+2. Create a fine-grained personal access token: **Repository access: only `e360-audit`**; permissions **Contents: Read and
+   write** (Metadata read is added automatically). Nothing else, in particular no Workflows and no Administration. Set an
+   expiry and a reminder to rotate it.
+3. Store it only as a Container Apps secret and point the app at the repository:
+   ```powershell
+   az containerapp secret set -g rg-e360 -n app-e360 --secrets e360-audit-token=<token>
+   az containerapp update -g rg-e360 -n app-e360 --set-env-vars E360_AUDIT_REPO=your-org/e360-audit E360_AUDIT_GITHUB_TOKEN=secretref:e360-audit-token
+   ```
+   Environment variables and secrets stay on the app when `Deploy-E360ContainerApp.ps1` later updates only the image.
+4. Check: the startup log line reads `Durable audit trail: github your-org/e360-audit`; after the next sign-in the
+   repository has `audit/<yyyy-MM>/<yyyy-MM-dd>.jsonl`, and the Authorization log shows "Last write ...".
+
+Layout and behaviour: one JSON Lines file per UTC day, a new part (`.1.jsonl`, `.2.jsonl`) after 512 KB. Writes are
+batched (one commit every few seconds at most), one at a time, and a failed write is kept and retried (5 s, 30 s, 2 min,
+then every 5 min; at most 5,000 records wait in memory). On SIGTERM (scale-in) pending records are written first. The app
+only creates or appends through the contents API, which cannot rewrite history, so any later change to a day file is
+visible in the repository's commit history. Revoking the token stops writing; the pages then show the error.
+
 ## Runtime notes
 - Sessions are in memory. With max 1 replica this is consistent, but sessions end when the app scales to zero or restarts; users simply sign in again. Do not raise max replicas without adding a shared session store.
+- App roles are re-checked with Entra at most every 5 minutes per active session (one token request through Key Vault signing each time), so a removed role or an ended PIM activation stops working within 5 minutes, and a disabled account is signed out. People who activate a PIM group select **Check my roles again** instead of signing out.
 - Hosted mode is switched on by `PUBLIC_BASE_URL`: the app trusts the ingress proxy, marks the session cookie `Secure`, accepts only that host (plus localhost for probes), and uses `<base>/auth/callback` as redirect URI. Local use is unchanged (127.0.0.1:3600, az login token).
 - "Collect this computer": the local collector works only when the browser and server run on the same PC (localhost). In the hosted app it would read the container, not the user's PC, so use snapshot import as the hosted fallback. The target design for device data is Intune Remediations (plan Phase 4.6, design doc section 13).
 

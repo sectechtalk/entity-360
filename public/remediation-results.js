@@ -1,5 +1,7 @@
 // Remediation results page (Investigate). Per-device results of the Entity 360 network connectivity Remediation,
 // from GET /api/intune/remediation-results (E360.Intune). Read-only. Pure helpers have no DOM so they are unit-tested.
+import { tipHtml } from './tip.js';
+import { auditStatusText } from './authz-log.js';
 export const REM_COLUMNS = [
   ['device', 'Device'], ['user', 'User'], ['status', 'Status'], ['passTotal', 'Pass/total'], ['avgMs', 'Avg latency (ms)'],
   ['issues', 'Issues'], ['lastRun', 'Last run (UTC)'],
@@ -38,12 +40,12 @@ const arrow = dir => (dir === 'asc' ? '\u25b2' : '\u25bc');
 export function tableHtml(rows, sort, esc, opts = {}) {
   const head = REM_COLUMNS.map(([k, label]) => {
     const on = sort.key === k;
-    return `<th data-rem-sort="${k}" tabindex="0" title="Sort by ${esc(label)}"${on ? ` aria-sort="${sort.dir === 'asc' ? 'ascending' : 'descending'}"` : ''}>${esc(label)}${on ? `<span class="sort-mark"> ${arrow(sort.dir)}</span>` : ''}</th>`;
+    return `<th data-rem-sort="${k}"${on ? ` aria-sort="${sort.dir === 'asc' ? 'ascending' : 'descending'}"` : ''}><button type="button" class="sort-button">${esc(label)}${on ? `<span class="sort-mark" aria-hidden="true"> ${arrow(sort.dir)}</span>` : ''}</button></th>`;
   }).join('') + (opts.canRun ? '<th>Action</th>' : '');
   const td = (r, k) => {
     if (k === 'status') { const [cls, label] = STATUS[r.status] || STATUS.unknown; return `<td><span class="result ${cls}">${label}</span></td>`; }
-    if (k === 'lastRun') return `<td title="${esc(r.lastRun ?? '')}">${esc(fmtUtc(r.lastRun))}</td>`;
-    if (k === 'issues') return `<td${r.scriptError ? ` title="${esc(r.scriptError)}"` : ''}>${esc(r.issues || (r.status === 'ok' ? 'None' : ''))}${r.truncated ? ' <span class="muted">(output shortened)</span>' : ''}</td>`;
+    if (k === 'lastRun') return `<td><time datetime="${esc(r.lastRun ?? '')}">${esc(fmtUtc(r.lastRun))}</time></td>`;
+    if (k === 'issues') return `<td>${esc(r.issues || (r.status === 'ok' ? 'None' : ''))}${r.truncated ? ' <span class="muted">(output shortened)</span>' : ''}${r.scriptError ? ` ${tipHtml('script error', r.scriptError, esc)}` : ''}</td>`;
     return `<td>${esc(String(cellText(r, k)))}</td>`;
   };
   const action = r => !opts.canRun ? '' : `<td>${r.deviceId ? `<button type="button" class="btn" data-rem-run="${esc(r.deviceId)}">Run now</button>` : ''}</td>`;
@@ -52,7 +54,7 @@ export function tableHtml(rows, sort, esc, opts = {}) {
 }
 // Phase 4.8: admin-requested runs (POST /api/intune/remediation-run) and their audit trail (GET /api/intune/remediation-runs).
 export const RUN_COLUMNS = [['time', 'Time (UTC)'], ['requester', 'Requester'], ['device', 'Device'], ['user', 'User'], ['reason', 'Reason'], ['result', 'Result']];
-export const RUNS_HELP = 'Run now requests made from Entity 360 by an E360.Admin, newest first. Each request is also written to the app console log. Results reach this page after the device runs the script and reports to Intune.';
+export const RUNS_HELP = 'Run now requests made from Entity 360 by an E360.Admin, newest first. Each request is written to the durable audit trail, so the last 14 days are shown again after the app restarts. Results reach this page after the device runs the script and reports to Intune.';
 export const REASON_MAX = 500;
 const RUN_RESULT = { accepted: ['success', 'Accepted'], denied: ['blocked', 'Denied'], failed: ['failed', 'Failed'] };
 const runText = (r, k) => k === 'time' ? fmtUtc(r.time) : k === 'requester' ? (r.requester?.upn || r.requester?.objectId || '') : k === 'result' ? `${RUN_RESULT[r.result]?.[1] || r.result || ''}${r.error ? `: ${r.error}` : ''}` : (r[k] ?? '');
@@ -62,7 +64,7 @@ export function runsCsv(rows) {
 }
 export function runsTableHtml(rows, esc) {
   const head = RUN_COLUMNS.map(([, label]) => `<th>${esc(label)}</th>`).join('');
-  const td = (r, k) => k === 'result' ? `<td${r.error ? ` title="${esc(r.error)}"` : ''}><span class="result ${(RUN_RESULT[r.result] || RUN_RESULT.failed)[0]}">${esc(RUN_RESULT[r.result]?.[1] || r.result || '')}</span>${r.error ? ` ${esc(r.error)}` : ''}</td>` : `<td>${esc(String(runText(r, k)))}</td>`;
+  const td = (r, k) => k === 'result' ? `<td><span class="result ${(RUN_RESULT[r.result] || RUN_RESULT.failed)[0]}">${esc(RUN_RESULT[r.result]?.[1] || r.result || '')}</span>${r.error ? ` ${esc(r.error)}` : ''}</td>` : `<td>${esc(String(runText(r, k)))}</td>`;
   return `<table class="event-table" data-table-id="remediation-runs"><thead><tr>${head}</tr></thead><tbody>${rows.map(r => `<tr>${RUN_COLUMNS.map(([k]) => td(r, k)).join('')}</tr>`).join('')}</tbody></table>`;
 }
 export function runFormHtml(row, esc) {
@@ -81,13 +83,14 @@ export function createRemediationView({ api, esc, emptyBox, canRun = () => false
     document.querySelectorAll('button[data-rem-run]').forEach(b => { b.onclick = () => openForm(b.dataset.remRun); });
     renderRuns();
     $('#rem-export').disabled = !rows.length;
-    document.querySelectorAll('th[data-rem-sort]').forEach(th => { const go = () => { const k = th.dataset.remSort; st.sort = st.sort.key === k ? { key: k, dir: st.sort.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: k === 'lastRun' ? 'desc' : 'asc' }; render(); document.querySelector(`th[data-rem-sort="${k}"]`)?.focus(); }; th.onclick = e => { if (!e.target.closest('.col-resizer')) go(); }; th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }; });
+    document.querySelectorAll('th[data-rem-sort]').forEach(th => { const go = () => { const k = th.dataset.remSort; st.sort = st.sort.key === k ? { key: k, dir: st.sort.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: k === 'lastRun' ? 'desc' : 'asc' }; render(); document.querySelector(`th[data-rem-sort="${k}"] .sort-button`)?.focus(); }; th.onclick = e => { if (!e.target.closest('.col-resizer')) go(); }; });
   }
   function renderRuns() {
     const panel = $('#rem-runs-panel'); if (!panel) return;
     panel.hidden = !canRun();
     $('#rem-runs-count').textContent = st.runs.length ? String(st.runs.length) : '';
-    $('#rem-runs-table').innerHTML = st.runs.length ? runsTableHtml(st.runs, esc) : emptyBox('No run requests since the app started.');
+    $('#rem-runs-table').innerHTML = st.runs.length ? runsTableHtml(st.runs, esc) : emptyBox(st.runsDurable ? 'No run requests in the last 14 days.' : 'No run requests since the app started.');
+    if ($('#rem-runs-help')) $('#rem-runs-help').textContent = [RUNS_HELP, st.runsAudit].filter(Boolean).join(' ');
     $('#rem-runs-export').disabled = !st.runs.length;
   }
   function closeForm() { st.runFor = null; const box = $('#rem-run-form'); if (box) { box.hidden = true; box.innerHTML = ''; } }
@@ -107,7 +110,7 @@ export function createRemediationView({ api, esc, emptyBox, canRun = () => false
   }
   async function loadRuns() {
     if (!canRun()) { st.runs = []; renderRuns(); return; }
-    try { const r = await api('/api/intune/remediation-runs'); st.runs = Array.isArray(r.rows) ? r.rows : []; } catch { st.runs = []; }
+    try { const r = await api('/api/intune/remediation-runs'); st.runs = Array.isArray(r.rows) ? r.rows : []; st.runsDurable = Boolean(r.audit?.durable); st.runsAudit = [auditStatusText(r.audit), r.historyError].filter(Boolean).join(' '); } catch { st.runs = []; }
     renderRuns();
   }
   async function load() {

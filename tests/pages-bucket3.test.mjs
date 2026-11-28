@@ -95,7 +95,7 @@ test('tabs, routes and errors are wired; deferred rows name their scope', async 
   assert.match(b3Panel('au', { error: 'Access not granted.' }, h), /needs AdministrativeUnit\.Read\.All/);
   assert.deepEqual(B3_DEFERRED.map(d => d[1]), ['AgreementAcceptance.Read', 'UserAuthenticationMethod.Read.All', 'IdentityRiskyUser.Read.All, IdentityRiskEvent.Read.All', 'IdentityRiskyServicePrincipal.Read.All', 'AccessReview.Read.All']);
   await assert.rejects(tabTable({}, 'riskyUsers', { id: ID }), /Unknown table/);
-  assert.equal(B3_TABLES.length, 6);
+  assert.equal(B3_TABLES.length, 7);
 });
 
 test('bucket 3 stays delegated, no demo, one .btn style', () => {

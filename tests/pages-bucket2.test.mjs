@@ -64,7 +64,7 @@ test('license path: direct vs group and the group-licensing error', async () => 
 
 test('device join type in Investigate device cards', () => {
   assert.equal(joinTypeLabel('ServerAd'), 'Hybrid joined');
-  assert.match(read('public/app.js'), /<dt>Join type<\/dt><dd>\$\{esc\(joinTypeLabel\(p\.trustType\)\)\}/);
+  assert.match(read('public/app.js'), /\['Join type', esc\(joinTypeLabel\(p\.trustType\)\)\]/);
   assert.match(read('server/live.mjs'), /trustType: joinOf\.get\(d\.id\)/);
 });
 

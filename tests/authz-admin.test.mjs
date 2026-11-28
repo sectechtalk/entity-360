@@ -1,6 +1,7 @@
 process.env.DEMO_MODE ??= 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { freePort } from './free-port.mjs';
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
 process.env.ENTRA_TENANT_ID = TENANT;
@@ -8,7 +9,8 @@ process.env.ENTRA_CLIENT_ID = '22222222-2222-2222-2222-222222222222';
 process.env.ENTRA_CERT_THUMBPRINT = 'A'.repeat(40);
 process.env.ENTRA_CERT_PRIVATE_KEY_PATH = 'C:\\outside\\entity360\\test-key.pem';
 
-const { APP_ROLES, decide, rolesFromClaims } = await import('../server/authflow.mjs');
+const { APP_ROLES, ROUTE_ROLES, decide, rolesFromClaims } = await import('../server/authflow.mjs');
+const { ROLE_INCLUDES, hasRole } = await import('../public/role-model.js');
 const { createApp } = await import('../server/index.mjs');
 const { authzVisible } = await import('../public/authz-log.js');
 
@@ -37,7 +39,7 @@ async function signedIn(t, port, roles) {
   return get;
 }
 
-test('E360.Admin is a known role and implies no other role, and no other role implies it', () => {
+test('E360.Admin is a known role that includes only E360.Reader, and no other role includes it', () => {
   assert.ok(APP_ROLES.includes('E360.Admin'));
   assert.deepEqual(rolesFromClaims({ roles: ['E360.Admin', 'Not.AnEntityRole'] }), ['E360.Admin']);
   const on = { mode: 'live', enforce: true };
@@ -46,22 +48,30 @@ test('E360.Admin is a known role and implies no other role, and no other role im
     assert.equal(decide({ ...on, path: '/api/authz/log', roles: [role] }).allowed, false, role);
   }
   assert.equal(decide({ ...on, path: '/api/authz/log', roles: APP_ROLES.filter(r => r !== 'E360.Admin') }).allowed, false);
-  for (const p of ['/api/billing', '/api/licenses', '/api/signins/lookup', '/api/intune/health']) {
+  for (const p of ['/api/billing', '/api/portfolio', '/api/signins/lookup', '/api/intune/health']) {
     assert.equal(decide({ ...on, path: p, roles: ['E360.Admin'] }).allowed, false, p);
   }
+  // Every E360.Reader route opens for E360.Admin alone.
+  for (const [p, role] of ROUTE_ROLES.filter(([, r]) => r === 'E360.Reader')) {
+    assert.equal(decide({ ...on, path: p, roles: ['E360.Admin'] }).allowed, true, `${p} (${role})`);
+  }
+  assert.deepEqual(ROLE_INCLUDES, { 'E360.Admin': ['E360.Reader'] });
+  assert.equal(hasRole(['E360.Reader'], 'E360.Admin'), false);
+  assert.equal(hasRole(['E360.Admin'], 'E360.Reader'), true);
+  assert.equal(hasRole(undefined, 'E360.Reader'), false);
 });
 
 test('signed out: the authorization log is not open', async t => {
-  const base = await start(t, 3660, { confidential: true, enforceRoles: true, demoMode: false });
+  const base = await start(t, await freePort(), { confidential: true, enforceRoles: true, demoMode: false });
   const r = await fetch(base + '/api/authz/log', { redirect: 'manual' });
   assert.ok(r.status === 401 || (r.status >= 300 && r.status < 400), `got ${r.status}`);
   if (r.status === 401) assert.equal((await r.json()).signin, '/auth/login');
 });
 
 test('every non-admin role gets 403 with requiredRole E360.Admin', async t => {
-  let port = 3661;
+  let port = await freePort();
   for (const roles of [['E360.Reader'], ['E360.SignIns'], ['E360.Intune'], ['E360.Billing'], ['E360.Reader', 'E360.SignIns', 'E360.Intune', 'E360.Billing'], []]) {
-    const get = await signedIn(t, port++, roles);
+    const get = await signedIn(t, await freePort(), roles);
     const r = await get('/api/authz/log');
     assert.equal(r.status, 403, roles.join(','));
     assert.equal((await r.json()).requiredRole, 'E360.Admin');
@@ -69,7 +79,7 @@ test('every non-admin role gets 403 with requiredRole E360.Admin', async t => {
 });
 
 test('E360.Admin gets 200 with rows and no tokens, but cannot open other features', async t => {
-  const get = await signedIn(t, 3667, ['E360.Admin']);
+  const get = await signedIn(t, await freePort(), ['E360.Admin']);
   assert.equal((await get('/api/billing')).status, 403);
   const r = await get('/api/authz/log');
   assert.equal(r.status, 200);

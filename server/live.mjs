@@ -1,5 +1,7 @@
 import { governanceKind } from '../public/group-types.js';
 import { SOURCE, GUID, fail, describeError, odata, queryUrl, entityLink, policyLink, finishReport } from './model.mjs';
+import { searchDevices, ENTRA_DEVICE_SELECT } from './devices.mjs';
+import { entraDeviceLink } from '../public/device-links.js';
 import { caControls, evaluateConditionalAccess, caApps, resourceGraph, roleAssignmentQuery, SUBSCRIPTIONS_QUERY, pimTiming } from './access.mjs';
 
 const GRAPH = 'https://graph.microsoft.com';
@@ -90,13 +92,16 @@ export async function searchLive(api, query, tenant) {
   if (q.length < 2) return { entities: [], partial: false };
   const userFilter = GUID.test(query) ? `id eq '${q}'` : `startsWith(displayName,'${q}') or startsWith(userPrincipalName,'${q}')`;
   const appFilter = GUID.test(query) ? `id eq '${q}' or appId eq '${q}'` : `startsWith(displayName,'${q}')`;
-  const results = await Promise.allSettled([
+  // Devices are searched alongside people and apps (by name, serial number or ID); a device search failure never hides the others.
+  const [results, devices] = await Promise.all([Promise.allSettled([
     api.request(queryUrl('/v1.0/users', { '$filter': userFilter, '$select': 'id,displayName,userPrincipalName,accountEnabled,department', '$top': '25' })),
     api.request(queryUrl('/v1.0/servicePrincipals', { '$filter': appFilter, '$select': 'id,displayName,appId,servicePrincipalType,accountEnabled', '$top': '25' })),
-  ]);
+  ]), searchDevices(api, query).catch(() => ({ entities: [], partial: true, denied: 0, attempted: 0 }))]);
   const available = results.filter(r => r.status === 'fulfilled');
-  if (!available.length) throw fail('No authorized entity search is available. Check your sign-in and delegated directory permissions.', 403);
-  return { entities: available.flatMap(r => r.value.value || []).map(e => normalizeEntity(e, tenant)), partial: results.some(r => r.status === 'rejected' && ![401, 403].includes(r.reason.status)) || available.some(r => r.value['@odata.nextLink']) };
+  if (!available.length && !devices.entities.length) throw fail('No authorized entity search is available. Check your sign-in and delegated directory permissions.', 403);
+  const seen = new Set();
+  const entities = [...available.flatMap(r => r.value.value || []).map(e => normalizeEntity(e, tenant)), ...devices.entities.map(d => ({ ...d, tenant }))].filter(e => !seen.has(`${e.type}:${e.id}`) && seen.add(`${e.type}:${e.id}`));
+  return { entities, partial: results.some(r => r.status === 'rejected' && ![401, 403].includes(r.reason.status)) || available.some(r => r.value['@odata.nextLink']) || devices.partial };
 }
 
 
@@ -159,6 +164,17 @@ export async function withFallback(api, primary, fallback, report, label) {
     return result;
   }
 }
+// A person's Devices page: Intune devices come first; Entra devices (registered or owned) are matched to them on the Entra
+// device ID, and the rest are added as Entra-only cards (no Intune record, so no policy states).
+export function mergeEntraDevices(report, entraDevices) {
+  const intune = report.policies.filter(p => p.kind === 'Device' && p.source === 'intune');
+  for (const e of entraDevices) {
+    const match = intune.find(p => p.azureADDeviceId && e.deviceId && p.azureADDeviceId.toLowerCase() === e.deviceId.toLowerCase());
+    if (match) { match.entraId = e.id; match.trustType ??= e.trustType || null; match.entra = e; continue; }
+    report.policies.push({ id: e.id, name: e.displayName || e.id, kind: 'Device', status: 'Not in Intune', assignment: 'Entra device registered to or owned by the user', relation: 'Entra registered or owned', detail: e.approximateLastSignInDateTime ? `Last sign-in: ${e.approximateLastSignInDateTime}` : 'Not enrolled in Intune', source: 'directory', link: entraDeviceLink(e), linkLabel: 'Open in Entra', evidence: e, deviceId: null, entraId: e.id, intuneId: null, lazyStates: false, trustType: e.trustType || null, entra: e });
+  }
+}
+
 export async function liveReport(api, id, type, range, { tenant, beta = false, azure = false, logs = false, workspaceIds = [], telemetryRoles = {} } = {}) {
   if (!GUID.test(id) || !['user', 'application', 'managedIdentity'].includes(type)) throw fail('Invalid entity identifier.');
   const collection = type === 'user' ? 'users' : 'servicePrincipals';
@@ -193,6 +209,7 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
   };
   addSource('directory').coverage = 'Current configuration snapshot';
   const groupIds = new Set();
+  const entraUserDevices = [];
   const directGroupIds = new Set();
   const groupNames = new Map();
   await run('directory', () => api.pages(`/v1.0/${collection}/${id}/transitiveMemberOf/microsoft.graph.group?$select=id,displayName,groupTypes,membershipRule,isAssignableToRole,onPremisesSyncEnabled`), rows => {
@@ -201,11 +218,15 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
   await run('directory', () => api.pages(`/v1.0/${collection}/${id}/memberOf/microsoft.graph.group?$select=id,displayName`), rows => rows.forEach(g => directGroupIds.add(g.id)), 'direct groups');
   const startEnd = `createdDateTime ge ${range.from} and createdDateTime le ${range.to}`;
   const signInFilter = type === 'user'
-    ? `userId eq '${id}' and ${startEnd}${beta ? " and signInEventTypes/any(t:t eq 'interactiveUser' or t eq 'nonInteractiveUser')" : ''}`
+    ? `userId eq '${id}' and ${startEnd}`
     : `${startEnd} and servicePrincipalId eq '${id}' and signInEventTypes/any(t:t eq '${type === 'managedIdentity' ? 'managedIdentity' : 'servicePrincipal'}')`;
   const tasks = [];
-  if (type === 'user' || beta) tasks.push(run('signin', () => api.pages(queryUrl(`/${beta ? 'beta' : 'v1.0'}/auditLogs/signIns`, { '$filter': signInFilter, '$top': '50' }), SIGNIN_PAGING), (rows, source) => {
-    source.note = beta ? 'Includes requested sign-in event types through Microsoft Graph beta (preview).' : 'Microsoft Graph v1.0 interactive user sign-ins. Noninteractive and workload sign-ins require the optional beta connector.';
+  // Users: always the v1.0 interactive feed. The beta query with nonInteractiveUser events reads every token
+  // refresh and regularly ran past the 15-second limit with 0 rows, so the Summary showed "Partial results" on
+  // every load. Non-interactive sign-ins stay available on the Sign-ins page lookup. Workloads still need beta.
+  const signInBeta = beta && type !== 'user';
+  if (type === 'user' || beta) tasks.push(run('signin', () => api.pages(queryUrl(`/${signInBeta ? 'beta' : 'v1.0'}/auditLogs/signIns`, { '$filter': signInFilter, '$top': '50' }), SIGNIN_PAGING), (rows, source) => {
+    source.note = signInBeta ? 'Includes requested sign-in event types through Microsoft Graph beta (preview).' : 'Microsoft Graph v1.0 interactive user sign-ins. For non-interactive sign-ins use Detailed lookup on the Sign-ins page.';
     report.events.push(...rows.map(s => ({
       id: s.id, time: s.createdDateTime, category: 'Sign-ins', title: `${s.appDisplayName || s.resourceDisplayName || 'Application'} sign-in`, result: s.status?.errorCode === 0 ? 'Success' : s.conditionalAccessStatus === 'failure' ? 'Blocked' : 'Failed', source: 'signin', actor: entity.name, target: s.resourceDisplayName || s.appDisplayName, direction: 'Actor', ip: s.ipAddress, correlationId: s.correlationId, explanation: s.status?.failureReason || 'See the recorded sign-in result and policy evaluations.',
       link: SOURCE.signin.url, linkLabel: 'Open sign-in logs', query: `Record ID: ${s.id}\nCorrelation ID: ${s.correlationId || 'Unavailable'}\nTime: ${s.createdDateTime}\nEntity: ${id}`,
@@ -297,7 +318,9 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
   if (type === 'user') {
     // Account state (User.Read.All): enabled, member/guest, sync source and the last session revocation.
     tasks.push(run('directory', async () => ({ rows: [await api.request(`/v1.0/users/${id}?$select=${ACCOUNT_SELECT}`)] }), rows => { report.account = accountState(rows[0]); }, 'account state'));
-    tasks.push(run('intune', () => api.pages(queryUrl(`/v1.0/users/${id}/managedDevices`, { '$select': 'id,deviceName,complianceState,operatingSystem,lastSyncDateTime,azureADDeviceId' })), async (rows, source) => {
+    // Entra devices this user registered or owns (Device.Read.All). Ones without an Intune record are added after all tasks finish.
+    for (const rel of ['registeredDevices', 'ownedDevices']) tasks.push(run('directory', () => api.pages(`/v1.0/users/${id}/${rel}/microsoft.graph.device?$select=${ENTRA_DEVICE_SELECT}`), rows => { for (const d of rows) if (!entraUserDevices.some(x => x.id === d.id)) entraUserDevices.push(d); }, rel === 'registeredDevices' ? 'registered devices' : 'owned devices'));
+    tasks.push(run('intune', () => api.pages(queryUrl(`/v1.0/users/${id}/managedDevices`, { '$select': 'id,deviceName,complianceState,operatingSystem,osVersion,manufacturer,model,serialNumber,isEncrypted,enrolledDateTime,managedDeviceOwnerType,lastSyncDateTime,azureADDeviceId' })), async (rows, source) => {
       source.coverage = 'Current managed device results';
       source.note = 'Devices associated with the user. Per-device compliance and configuration states load only when you open a device (Load policy states).';
       // Join type comes from the Entra device object (Device.Read.All); missing or unreadable stays 'not returned'.
@@ -306,7 +329,7 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
       for (const d of rows) {
         const link = `https://intune.microsoft.com/#view/Microsoft_Intune_Devices/DeviceSettingsMenuBlade/~/overview/mdmDeviceId/${d.id}`;
         report.relationships.push({ name: d.deviceName, kind: d.operatingSystem, relation: `Device · ${d.complianceState}`, source: 'intune', link });
-        report.policies.push({ id: d.id, name: d.deviceName, kind: 'Device', status: d.complianceState, assignment: 'Managed device associated with user', detail: `Last synchronized: ${d.lastSyncDateTime}`, source: 'intune', link, linkLabel: 'Open device', evidence: d, deviceId: d.id, lazyStates: true, trustType: joinOf.get(d.id) ?? null });
+        report.policies.push({ id: d.id, name: d.deviceName, kind: 'Device', status: d.complianceState, assignment: 'Managed device associated with user', relation: 'Intune primary user', detail: `Last synchronized: ${d.lastSyncDateTime}`, source: 'intune', link, linkLabel: 'Open device', evidence: d, deviceId: d.id, intuneId: d.id, azureADDeviceId: d.azureADDeviceId || null, lazyStates: true, trustType: joinOf.get(d.id) ?? null });
       }
     }));
     // Defender process events load on the Defender tab only (GET /api/defender), so they are not part of this report.
@@ -314,6 +337,7 @@ export async function liveReport(api, id, type, range, { tenant, beta = false, a
   if (azure) tasks.push(collectAzure(api, entity, groupIds, range, run, report));
   if (logs) tasks.push(collectWorkspaceLogs(api, entity, range, workspaceIds, telemetryRoles, run, report));
   await Promise.all(tasks);
+  if (type === 'user') mergeEntraDevices(report, entraUserDevices);
   delete report.flag;
   report.sources = [...sourceMap.values()];
   for (const source of report.sources) source.count = report.events.filter(e => e.source === source.id).length;

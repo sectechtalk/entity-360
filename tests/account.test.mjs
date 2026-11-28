@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { accountReport, demoAccountReport, normalizeSnapshot } from '../server/account.mjs';
 import { createApp } from '../server/index.mjs';
+import { freePort } from './free-port.mjs';
 
 const id = '11111111-1111-1111-1111-111111111111';
 const denied = () => { throw Object.assign(new Error('SECRET denied details'), { status: 403 }); };
@@ -53,10 +54,11 @@ test('restricted demo account omits license and device evidence', () => {
   assert.deepEqual(r.sources.map(s => s.id), ['self-directory']);
 });
 test('snapshot import requires CSRF, validates structure, and does not persist between sessions', async t => {
-  const server = createApp({ port: 3622 }).listen(3622, '127.0.0.1');
+  const p3622 = await freePort();
+  const server = createApp({ port: p3622 }).listen(p3622, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const base = 'http://127.0.0.1:3622';
+  const base = `http://127.0.0.1:${p3622}`;
   const response = await fetch(base + '/api/session'); const session = await response.json();
   const cookie = response.headers.get('set-cookie').split(';')[0];
   const headers = { Cookie: cookie, 'Content-Type': 'application/json', 'X-CSRF-Token': session.csrf };

@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { ROLE_GROUPS, PIM_GROUPS_URL, VIEW_ROLES, missingRole, deniedHtml } from '../public/access-denied.js';
 import { fmtUtc } from '../public/authz-log.js';
 import { ROUTE_ROLES } from '../server/authflow.mjs';
+import { openRail } from './open-rail.mjs';
+import { freePort } from './free-port.mjs';
 
 const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
 
@@ -18,6 +20,11 @@ test('missingRole only applies when roles are enforced', () => {
   assert.equal(missingRole({ rolesEnforced: true, appRoles: ['E360.Billing'] }, 'billing'), null);
   assert.equal(missingRole({ rolesEnforced: true, appRoles: [] }, 'portals'), null);
   assert.equal(missingRole(null, 'billing'), null);
+  // E360.Admin includes E360.Reader (public/role-model.js), and nothing else.
+  assert.equal(missingRole({ rolesEnforced: true, appRoles: ['E360.Admin'] }, 'summary'), null);
+  assert.equal(missingRole({ rolesEnforced: true, appRoles: ['E360.Admin'] }, 'pim'), null);
+  assert.equal(missingRole({ rolesEnforced: true, appRoles: ['E360.Admin'] }, 'billing'), 'E360.Billing');
+  assert.equal(missingRole({ rolesEnforced: true, appRoles: ['E360.Admin'] }, 'signins'), 'E360.SignIns');
 });
 
 test('view roles agree with the server route roles', () => {
@@ -27,6 +34,8 @@ test('view roles agree with the server route roles', () => {
   assert.equal(VIEW_ROLES.signins, server['/api/signins']);
   assert.equal(VIEW_ROLES.health, server['/api/intune']);
   assert.equal(VIEW_ROLES.authz, server['/api/authz']);
+  for (const view of ['summary', 'access', 'devices']) assert.equal(VIEW_ROLES[view], server['/api/investigate'], view);
+  assert.equal(VIEW_ROLES.activity, server['/api/activity']);
 });
 
 test('denial for a PIM group role links activation and sign in again', () => {
@@ -36,7 +45,8 @@ test('denial for a PIM group role links activation and sign in again', () => {
     assert.ok(html.includes(role) && html.includes(group));
     assert.ok(html.includes(`href="${PIM_GROUPS_URL}"`));
     assert.match(html, /<button type="button" class="btn" data-go="my-pim">Activate in PIM \(groups\)<\/button>/);
-    assert.match(html, /sign out and back in after activating/);
+    assert.match(html, /select Check my roles again/);
+    assert.match(html, /data-denied-recheck>Check my roles again</);
     assert.match(html, /data-denied-signin>Sign in again</);
   }
 });
@@ -46,6 +56,7 @@ test('denial for a directly assigned role says ask your administrator', () => {
   assert.match(html, /Ask your administrator/);
   assert.ok(!html.includes(PIM_GROUPS_URL));
   assert.match(html, /Sign in again/);
+  assert.match(html, /data-denied-recheck>Check my roles again</);
 });
 
 test('denial markup uses only .btn and no em dashes', () => {
@@ -68,7 +79,7 @@ test('authz time is compact UTC on one line, header actions hidden on authz', ()
 });
 
 test('browser: locked nav, friendly denial on lock and on 403, authz polish', async t => {
-  const PORT = 3673, TENANT = '11111111-1111-1111-1111-111111111111';
+  const PORT = await freePort(), TENANT = '11111111-1111-1111-1111-111111111111';
   Object.assign(process.env, { DEMO_MODE: 'false', ENTRA_TENANT_ID: TENANT, ENTRA_CLIENT_ID: '22222222-2222-2222-2222-222222222222', ENTRA_CERT_THUMBPRINT: 'A'.repeat(40), ENTRA_CERT_PRIVATE_KEY_PATH: 'C:\\outside\\x.pem' });
   let chromium; try { ({ chromium } = await import('@playwright/test')); } catch { t.skip('playwright not installed'); return; }
   let browser; try { browser = await chromium.launch({ channel: 'msedge' }); } catch { try { browser = await chromium.launch(); } catch { t.skip('no browser available'); return; } }
@@ -81,7 +92,7 @@ test('browser: locked nav, friendly denial on lock and on 403, authz polish', as
   const server = createApp({ port: PORT, confidential: true, enforceRoles: true, demoMode: false, createConfidential: () => mock, certificate: () => ({ thumbprint: 'A'.repeat(40), privateKey: 'test' }),
     apiFetcher: async () => new Response(JSON.stringify({ value: [], id: account.localAccountId, displayName: 'Aaron', userPrincipalName: account.username, accountEnabled: true }), { status: 200, headers: { 'content-type': 'application/json' } }) }).listen(PORT, '127.0.0.1');
   await new Promise(r => server.once('listening', r));
-  const open = async () => { const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto(`http://127.0.0.1:${PORT}/`); await page.waitForFunction(() => document.querySelector('#mode-badge')?.textContent.includes('LIVE'), null, { timeout: 15000 }); return { ctx, page, errors }; };
+  const open = async () => { const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); await openRail(ctx); await ctx.addInitScript(() => { window.__e360SectionsOpen = true; }); const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto(`http://127.0.0.1:${PORT}/`); await page.waitForFunction(() => document.querySelector('#mode-badge')?.textContent.includes('LIVE'), null, { timeout: 15000 }); return { ctx, page, errors }; };
   try {
     // Reader only: Billing and Sign-ins are locked but clickable; Authorization log stays hidden.
     roles = ['E360.Reader'];

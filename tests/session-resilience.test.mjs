@@ -2,6 +2,7 @@
 process.env.DEMO_MODE ??= 'true';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { freePort } from './free-port.mjs';
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
 process.env.ENTRA_TENANT_ID = TENANT;
@@ -40,7 +41,7 @@ async function boot(t, port, silentOk, flags = {}) {
 
 test('an Azure token failure returns 403 and drops Azure, never 401', async t => {
   const flags = {};
-  const { get, calls } = await boot(t, 3681, true, flags);
+  const { get, calls } = await boot(t, await freePort(), true, flags);
   assert.equal((await (await get('/api/session')).json()).azureConnected, true);
   flags.armDown = true;
   const res = await get('/api/activity?id=33333333-3333-3333-3333-333333333333&days=1');
@@ -52,13 +53,13 @@ test('an Azure token failure returns 403 and drops Azure, never 401', async t =>
 });
 
 test('cookie rolls on every request', async t => {
-  const { get } = await boot(t, 3682, true);
+  const { get } = await boot(t, await freePort(), true);
   const res = await get('/api/session');
   assert.match(res.headers.get('set-cookie') || '', /entity360=[0-9a-f]{64}.*Max-Age=\d+/i);
 });
 
 test('a lost session resumes with the last account as login hint and no account picker', async t => {
-  const { hint, base, calls } = await boot(t, 3683, true);
+  const { hint, base, calls } = await boot(t, await freePort(), true);
   assert.ok(hint, 'hint cookie set at sign-in');
   // New browser session (server restarted): only the hint cookie survives.
   await fetch(base + '/auth/login?resume=1', { redirect: 'manual', headers: { Cookie: hint } });
@@ -71,7 +72,7 @@ test('a lost session resumes with the last account as login hint and no account 
 
 test('an upstream Azure 401 is a reconnect (403), not a sign-out', async t => {
   const flags = {};
-  const { get } = await boot(t, 3684, true, flags);
+  const { get } = await boot(t, await freePort(), true, flags);
   flags.arm401 = true;
   const res = await get('/api/activity?id=33333333-3333-3333-3333-333333333333&days=1');
   assert.equal(res.status, 403);

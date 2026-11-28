@@ -21,7 +21,7 @@ test('every server page has a nav item, a view title and no write call', () => {
   const html = read('public/index.html');
   assert.deepEqual(Object.keys(B5_VIEWS).sort(), Object.keys(B5_PAGES).sort());
   for (const k of Object.keys(B5_PAGES)) assert.match(html, new RegExp(`data-view="${k}"`));
-  for (const f of ['server/bucket5.mjs', ...['tenant', 'auth', 'external', 'governance', 'apps'].map(s => `server/pages/${s}.mjs`)]) assert.doesNotMatch(read(f), /method:\s*'(POST|PATCH|PUT|DELETE)'/);
+  for (const f of ['server/bucket5.mjs', ...['tenant', 'auth', 'strength', 'external', 'governance', 'apps'].map(s => `server/pages/${s}.mjs`)]) assert.doesNotMatch(read(f), /method:\s*'(POST|PATCH|PUT|DELETE)'/);
   for (const [, page] of B5_DEFERRED) assert.ok(!Object.values(B5_VIEWS).some(([t]) => t === page));
 });
 

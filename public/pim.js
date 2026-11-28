@@ -1,6 +1,7 @@
 // Unified PIM table (MY ACCOUNT > My PIM with Activate/Deactivate; INVESTIGATE > PIM read-only).
 // The table is drawn once and then updated in place: polling and refreshes only rewrite the rows when the data changed,
 // and keep the scroll position. Sorting and per-column filters only touch the rows. Busy state is per row, never global.
+import { tipHtml } from './tip.js';
 import { ROLE_GROUPS } from './access-denied.js';
 import { PIM_ACTIVATION_LINKS } from './device-links.js';
 const activation = label => PIM_ACTIVATION_LINKS.find(([l]) => l === label)[1];
@@ -142,7 +143,7 @@ export function pimRowsHtml(rows, { esc, self, pending = new Map() }) {
   return rows.map(r => {
     const p = pending.get(r.key), cells = cols.map(c => {
       if (c.key === 'name') return `<td>${linkOr(nameLink(r), r.name, esc)}${r.memberType && String(r.memberType).toLowerCase() !== 'direct' ? `<small>${esc(String(r.memberType).toLowerCase() === 'group' ? 'Through a group' : r.memberType)}</small>` : ''}</td>`;
-      if (c.key === 'scope') return `<td title="${esc(r.scope || '')}">${esc(c.text(r))}</td>`;
+      if (c.key === 'scope') { const shown = c.text(r); return `<td>${esc(shown)}${r.scope && r.scope !== shown ? ` ${tipHtml('full scope', r.scope, esc)}` : ''}</td>`; }
       if (c.key === 'state') return `<td><span class="result ${stateClass(r, p)}">${esc(c.text(r, p))}</span></td>`;
       if (c.key === 'action') {
         if (!r.action) return '<td></td>';
@@ -162,7 +163,7 @@ export function menuOptsHtml(values, ex, esc) {
 // Sort stays on the header cell (click the column name). Under it, one menu per column: a text filter and the column's values as checkboxes.
 export function pimHeadHtml({ esc, self, sort = null, filters = {}, excluded = {}, rows = [], pending = new Map() }) {
   const cols = pimColumns(self);
-  const head = cols.map(c => { const on = sort?.key === c.key; return `<th data-pim-sort="${c.key}" tabindex="0" title="Sort by ${esc(c.label)}"${on ? ` aria-sort="${sort.dir === 'asc' ? 'ascending' : 'descending'}"` : ''}>${esc(c.label)}<span class="sort-mark">${on ? ` ${arrow(sort.dir)}` : ''}</span></th>`; }).join('');
+  const head = cols.map(c => { const on = sort?.key === c.key; return `<th data-pim-sort="${c.key}"${on ? ` aria-sort="${sort.dir === 'asc' ? 'ascending' : 'descending'}"` : ''}><button type="button" class="sort-button">${esc(c.label)}<span class="sort-mark" aria-hidden="true">${on ? ` ${arrow(sort.dir)}` : ''}</span></button></th>`; }).join('');
   const filt = cols.map(c => `<th><details class="msel msel-th pim-menu" data-msel="pim-${c.key}" data-pim-menu="${c.key}"><summary class="btn msel-trigger" aria-label="Filter ${esc(c.label)}">${menuLabel(filters[c.key], excluded[c.key])}</summary><div class="msel-menu" role="group" aria-label="Filter ${esc(c.label)}">`
     + `<input class="pim-filter" data-pim-filter="${c.key}" type="search" aria-label="Filter ${esc(c.label)} by text" placeholder="Type to filter" autocomplete="off" value="${esc(filters[c.key] || '')}">`
     + `<div class="msel-actions"><button type="button" class="btn" data-pim-all>Select all</button><button type="button" class="btn" data-pim-none>Clear</button></div>`
@@ -215,7 +216,6 @@ export function createPimView({ api, esc, emptyBox, root, self, entity = () => n
       if (b) { if (!b.disabled) start(b, st.rows.find(r => rowId(r) === b.dataset.pimRow), b.dataset.pimAction); return; }
       const h = e.target.closest('th[data-pim-sort]'); if (h && !e.target.closest('.col-resizer')) sortBy(h.dataset.pimSort);
     });
-    th.addEventListener('keydown', e => { const h = e.target.closest?.('th[data-pim-sort]'); if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); sortBy(h.dataset.pimSort); } });
     const onFilter = e => {
       const f = e.target.closest?.('[data-pim-filter]');
       if (f) { st.filters[f.dataset.pimFilter] = f.value; label(f.dataset.pimFilter); drawRows(); return; }

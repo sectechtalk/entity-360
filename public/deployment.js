@@ -1,4 +1,4 @@
-// Deployment / onboarding log: renders public/deployment-log.json (identifiers only, no secrets).
+// Deployment / onboarding log: renders public/deployment-log.json, served only to signed-in readers at /api/deployment-log.
 // Claude appends a step to that file after each onboarding action; this view only reads it.
 export function createDeploymentView({ esc }) {
   let log = null, machine = 'all';
@@ -30,7 +30,7 @@ export function createDeploymentView({ esc }) {
   }
   async function load() {
     try {
-      const response = await fetch('/deployment-log.json', { cache: 'no-store' });
+      const response = await fetch('/api/deployment-log', { cache: 'no-store', credentials: 'same-origin' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       log = await response.json();
       render();

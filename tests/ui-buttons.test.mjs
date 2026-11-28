@@ -5,8 +5,9 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 const dir = new URL('../public/', import.meta.url);
 const files = readdirSync(dir).filter(f => /\.(html|js)$/.test(f)).map(f => [f, readFileSync(new URL(f, dir), 'utf8')]);
-// Navigation controls are not action buttons: sidebar items, tabs and search suggestions.
-const NAV = new Set(['nav-item', 'tab', 'search-option']);
+// Navigation controls are not action buttons: sidebar items, tabs and search suggestions. Table sort headers,
+// row openers and "?" toggletips are real buttons styled as the text they sit in, so they are exempt too.
+const NAV = new Set(['nav-item', 'nav-label', 'tab', 'search-option', 'sort-button', 'row-open', 'tip']);
 
 test('every <button> carries the shared btn class (or is a navigation control)', () => {
   const bad = [];
@@ -27,7 +28,7 @@ test('no legacy button or link-styled action classes remain', () => {
 
 test('links rendered as actions use btn', () => {
   for (const [f, src] of files) for (const m of src.matchAll(/<a\b[^>]*class="([^"]*)"/g)) {
-    if (/\b(source-link|guide-link|skip|brand)\b/.test(m[1]) || m[1].includes('${')) continue;
+    if (/\b(source-link|guide-link|skip|brand|nav-item|app-switch-item)\b/.test(m[1]) || m[1].includes('${')) continue;
     assert.ok(m[1].split(/\s+/).includes('btn'), `${f}: <a class="${m[1]}">`);
   }
 });

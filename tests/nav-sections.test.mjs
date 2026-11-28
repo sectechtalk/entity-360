@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readCollapsed, sectionKey, NAV_COLLAPSE_KEY } from '../public/nav-sections.js';
+import { freePort } from './free-port.mjs';
 
 const css = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
@@ -15,12 +16,12 @@ test('sidebar nav scrolls inside a viewport-height sidebar with a thin themed sc
   assert.match(css, /\.sidebar\{[^}]*height:100dvh/);
 });
 
-test('every nav section header is a keyboard-focusable toggle with a chevron', () => {
-  const labels = html.match(/<div class="nav-label"[^>]*>.*?<\/div>/g) || [];
+test('every nav section header is a real <button> toggle with a chevron', () => {
+  const labels = html.match(/<button type="button" class="nav-label"[^>]*>.*?<\/button>/g) || [];
   assert.ok(labels.length >= 8);
+  assert.doesNotMatch(html, /<div class="nav-label"/);
   for (const label of labels) {
-    assert.match(label, /role="button"/); assert.match(label, /tabindex="0"/);
-    assert.match(label, /aria-expanded="true"/); assert.match(label, /data-section="[a-z-]+"/);
+    assert.match(label, /aria-expanded="false"/); assert.match(label, /data-section="[a-z-]+"/);
     assert.match(label, /class="nav-chevron"/);
   }
   assert.match(css, /\.nav-label\[aria-expanded="false"\] \.nav-chevron\{/);
@@ -44,7 +45,7 @@ test('applyView guards every sub-view so one failure cannot block navigation', (
 
 // Browser click-through (Edge via Playwright). Skips only if no browser can launch on this machine.
 test('admin can open Authorization log; sections collapse, persist and scroll', async t => {
-  const PORT = 3672, TENANT = '11111111-1111-1111-1111-111111111111';
+  const PORT = await freePort(), TENANT = '11111111-1111-1111-1111-111111111111';
   Object.assign(process.env, { DEMO_MODE: 'false', ENTRA_TENANT_ID: TENANT, ENTRA_CLIENT_ID: '22222222-2222-2222-2222-222222222222', ENTRA_CERT_THUMBPRINT: 'A'.repeat(40), ENTRA_CERT_PRIVATE_KEY_PATH: 'C:\\outside\\x.pem' });
   let chromium; try { ({ chromium } = await import('@playwright/test')); } catch { t.skip('playwright not installed'); return; }
   let browser; try { browser = await chromium.launch({ channel: 'msedge' }); } catch { try { browser = await chromium.launch(); } catch { t.skip('no browser available'); return; } }
@@ -62,11 +63,17 @@ test('admin can open Authorization log; sections collapse, persist and scroll', 
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto(`http://127.0.0.1:${PORT}/`);
     await page.waitForFunction(() => !document.querySelector('#navigation [data-view=authz]').hidden, null, { timeout: 15000 });
+    // Every section starts collapsed except the one holding the page on screen (Summary, under INVESTIGATE).
+    const expandedSections = () => page.$$eval('#navigation .nav-label', ls => ls.filter(l => l.getAttribute('aria-expanded') === 'true').map(l => l.dataset.section));
+    assert.deepEqual(await expandedSections(), ['investigate']);
+    assert.equal(await page.isVisible('#navigation [data-view="licenses"]'), false);
     await page.click('#navigation [data-view="authz"]');
     await page.waitForFunction(() => !document.querySelector('#authz-panel').hidden);
     assert.equal(await page.textContent('#page-title'), 'Authorization log');
     assert.equal(await page.getAttribute('#navigation .active', 'data-view'), 'authz');
 
+    // Open every section: the rail then scrolls at 600px height.
+    for (const l of await page.$$('#navigation .nav-label[aria-expanded="false"]')) await l.click();
     const nav = await page.evaluate(() => { const n = document.querySelector('#navigation'); return { oy: getComputedStyle(n).overflowY, scrollable: n.scrollHeight > n.clientHeight }; });
     assert.equal(nav.oy, 'auto'); assert.ok(nav.scrollable, 'nav should scroll at 600px height');
     await page.locator('#navigation [data-view="p-consent"]').scrollIntoViewIfNeeded();
@@ -81,9 +88,11 @@ test('admin can open Authorization log; sections collapse, persist and scroll', 
     assert.equal(await page.getAttribute(label, 'aria-expanded'), 'true');
     await page.keyboard.press(' ');
     assert.equal(await page.getAttribute(label, 'aria-expanded'), 'false');
+    // Opened sections are remembered; closed ones stay closed.
     await page.reload();
     await page.waitForSelector(`${label}[aria-expanded="false"]`, { timeout: 15000 });
     assert.equal(await page.isVisible('#navigation [data-view="billing"]'), false);
+    assert.equal(await page.getAttribute('#navigation .nav-label[data-section="apps"]', 'aria-expanded'), 'true');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); server.close(); }
 });

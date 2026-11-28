@@ -140,7 +140,7 @@ export function filtersIntoHeaders(bar, table) {
   if (!bar || !table) return;
   const ths = [...table.querySelectorAll('thead tr:last-child th')];
   ths.forEach(th => th.querySelectorAll(':scope > [data-msel]').forEach(d => d.remove()));
-  const label = th => (th.dataset.label ||= [...th.childNodes].filter(n => n.nodeType === 3 || !n.matches?.('[data-msel],.col-resizer,.sort-mark')).map(n => n.textContent).join('').trim());
+  const label = th => (th.dataset.label ||= [...th.childNodes].filter(n => n.nodeType === 3 || !n.matches?.('[data-msel],.col-resizer,.sort-mark,.tip,.tip-text')).map(n => n.textContent).join('').trim());
   [...bar.querySelectorAll('[data-msel]')].forEach(d => {
     const want = (d.dataset.mselHeader || '').toLowerCase();
     const th = ths.find(h => label(h).toLowerCase().startsWith(want));

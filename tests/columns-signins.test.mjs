@@ -7,7 +7,7 @@ import { MIN_COL_WIDTH, storageKey, clampWidth, loadWidths, saveWidths, clearWid
 import { normalizeSignIn } from '../server/signins.mjs';
 
 const read = p => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
-const ths = (html, marker) => [...html.slice(html.indexOf(marker)).match(/<thead><tr>(.*?)<\/tr><\/thead>/)[1].matchAll(/<th[^>]*>(.*?)<\/th>/g)].map(m => m[1].replace(/<span[^>]*>.*?<\/span>/g, '').trim());
+const ths = (html, marker) => [...html.slice(html.indexOf(marker)).match(/<thead><tr>(.*?)<\/tr><\/thead>/)[1].matchAll(/<th[^>]*>(.*?)<\/th>/g)].map(m => m[1].replace(/<span[^>]*>.*?<\/span>/g, '').replace(/<button[^>]*class="tip"[^>]*>.*?<\/button>/g, '').trim());
 
 test('sign-ins table has the Entra Sign-in logs default columns in order', () => {
   assert.deepEqual(SIGNIN_HEADERS, ['Date', 'Request ID', 'Application', 'Status', 'Sign-in error code', 'IP address', 'Location', 'Conditional Access', 'Risk', 'Agent type', 'Authentication requirement', 'Tenant', 'Sign-in type', 'Session']);

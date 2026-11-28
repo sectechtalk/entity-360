@@ -22,10 +22,11 @@ test('connection panel: signed-in note in its own card above the tenant boundary
   assert.match(css, /#error-lookup-link\{margin-top:12px!important\}/);
 });
 
-test('four tables use self-hosted Inter at 9pt; CSP allows it', async () => {
-  const css = await r('styles.css');
-  assert.match(css, /@font-face\{font-family:Inter;[^}]*url\(\/fonts\/InterVariable\.woff2\)/);
-  for (const id of ['signins-page', 'access-page', 'activity-page', 'my-device']) assert.match(css, new RegExp(`#${id} table td\\{?[^}]*?font-family:Inter,system-ui,sans-serif!important;font-size:9pt!important|#${id} table,`));
+test('four tables use self-hosted Inter at the 13px table size; CSP allows it', async () => {
+  const css = await r('styles.css'), base = await r('360-base.css');
+  assert.match(css, /^@import url\('\/360-base\.css'\);/);
+  assert.match(base, /@font-face\{font-family:Inter;[^}]*url\(\/fonts\/InterVariable\.woff2\)/);
+  for (const id of ['signins-page', 'access-page', 'activity-page', 'my-device']) assert.match(css, new RegExp(`#${id} table td\\{?[^}]*?font-family:var\\(--font-sans\\)!important;font-size:var\\(--text-sm\\)!important|#${id} table,`));
   assert.ok((await stat(new URL('../public/fonts/InterVariable.woff2', import.meta.url))).size > 100000);
   const idx = await readFile(new URL('../server/index.mjs', import.meta.url), 'utf8');
   assert.match(idx, /default-src 'self'/); assert.doesNotMatch(idx, /font-src/);
